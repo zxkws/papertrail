@@ -1,0 +1,10 @@
+services:
+  api:
+    build: {context: ., dockerfile: Dockerfile.api}
+    volumes: ["pdf_data:/app/data"]
+  web:
+    build: {context: ., dockerfile: Dockerfile.web}
+    ports: ["5173:80"]
+    depends_on: [api]
+volumes: {pdf_data: {}}
+
