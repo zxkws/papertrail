@@ -16,7 +16,6 @@ import type {
   DocumentInfo,
   Layout,
   Operation,
-  Rotation,
   VisualElement,
 } from "./types";
 import "./styles.css";
