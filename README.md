@@ -27,7 +27,7 @@ make dev
 ## 后端镜像与第三方部署
 
 推送 `main` 分支中与 API 镜像有关的改动后，GitHub Actions 会自动构建
-`Dockerfile.api`，并推送以下 Linux AMD64 镜像到 GitHub Container Registry：
+`Dockerfile.api`，并推送以下 Linux AMD64/ARM64 多架构镜像到 GitHub Container Registry：
 
 ```text
 ghcr.io/zxkws/web-pdf-editor-api:latest
