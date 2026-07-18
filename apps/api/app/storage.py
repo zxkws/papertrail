@@ -68,7 +68,13 @@ def document(document_id: str) -> dict:
 def create_draft(document_id: str) -> dict:
     document(document_id)
     draft_id = str(uuid.uuid4())
-    draft = {"id": draft_id, "document_id": document_id, "revision": 0, "operations": [], "canonical_hash": None}
+    draft = {
+        "id": draft_id,
+        "document_id": document_id,
+        "revision": 0,
+        "operations": [],
+        "canonical_hash": None,
+    }
     atomic_json(META / f"draft-{draft_id}.json", draft)
     return draft
 
@@ -81,7 +87,9 @@ def save_draft(value: dict) -> None:
     atomic_json(META / f"draft-{value['id']}.json", value)
 
 
-def publish_export(document_id: str, temp_path: Path, canonical_hash: str, draft_revision: int) -> dict:
+def publish_export(
+    document_id: str, temp_path: Path, canonical_hash: str, draft_revision: int
+) -> dict:
     version_id = str(uuid.uuid4())
     final_path = EXPORTS / f"{version_id}.pdf"
     os.replace(temp_path, final_path)
@@ -100,4 +108,3 @@ def publish_export(document_id: str, temp_path: Path, canonical_hash: str, draft
 
 def version(version_id: str) -> dict:
     return read_json(META / f"version-{version_id}.json")
-

@@ -3,7 +3,7 @@ install:
 	cd apps/api && uv sync --dev
 	cd apps/web && npm install
 api:
-	cd apps/api && uv run uvicorn app.main:app --reload --port 8000
+	cd apps/api && uv run uvicorn app.main:app --reload --port 8888
 web:
 	cd apps/web && npm run dev
 dev:

@@ -18,7 +18,9 @@ class TextStyle(BaseModel):
 class Operation(BaseModel):
     id: str
     seq: Annotated[int, Field(gt=0)]
-    type: Literal["replace_text", "delete_text", "move_text", "add_text", "cover_region"]
+    type: Literal[
+        "replace_text", "delete_text", "move_text", "add_text", "cover_region"
+    ]
     page_index: Annotated[int, Field(ge=0)]
     target_element_id: str | None = None
     created_element_id: str | None = None
@@ -33,7 +35,9 @@ class Operation(BaseModel):
         if self.bbox and (self.bbox[2] <= self.bbox[0] or self.bbox[3] <= self.bbox[1]):
             raise ValueError("bbox must have positive area")
         if self.type == "add_text":
-            if not self.created_element_id or not self.created_element_id.startswith("a:"):
+            if not self.created_element_id or not self.created_element_id.startswith(
+                "a:"
+            ):
                 raise ValueError("add_text requires stable a: created_element_id")
             if not self.bbox:
                 raise ValueError("add_text requires bbox")
@@ -61,4 +65,3 @@ class NativeElement(BaseModel):
     flags: int = 0
     source: Literal["native"] = "native"
     editability: Literal["native", "cover_only"] = "native"
-
