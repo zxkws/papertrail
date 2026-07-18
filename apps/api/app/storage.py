@@ -97,7 +97,17 @@ def publish_export(
 ) -> dict:
     version_id = str(uuid.uuid4())
     final_path = EXPORTS / f"{version_id}.pdf"
-    os.replace(temp_path, final_path)
+    fd, staged_path = tempfile.mkstemp(
+        dir=EXPORTS, prefix=".tmp-export-", suffix=".pdf"
+    )
+    os.close(fd)
+    try:
+        shutil.copyfile(temp_path, staged_path)
+        os.replace(staged_path, final_path)
+    finally:
+        if os.path.exists(staged_path):
+            os.unlink(staged_path)
+        temp_path.unlink(missing_ok=True)
     digest = hashlib.sha256(final_path.read_bytes()).hexdigest()
     version = {
         "id": version_id,
