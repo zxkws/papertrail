@@ -24,6 +24,27 @@ make dev
 
 访问 <http://localhost:5173>。也可分开运行 `make api` 与 `make web`。Docker 可运行 `docker compose up --build`。
 
+## 后端镜像与第三方部署
+
+推送 `main` 分支中与 API 镜像有关的改动后，GitHub Actions 会自动构建
+`Dockerfile.api`，并推送以下 Linux AMD64 镜像到 GitHub Container Registry：
+
+```text
+ghcr.io/zxkws/web-pdf-editor-api:latest
+ghcr.io/zxkws/web-pdf-editor-api:sha-<commit>
+```
+
+第三方平台部署时暴露端口 `8000`，将持久化卷挂载到 `/app/data`，并至少设置：
+
+```env
+PDF_EDITOR_DATA=/app/data
+PDF_EDITOR_CORS_ORIGINS=https://api.example.com
+```
+
+健康检查路径是 `/api/v1/health`。当前 JSON/文件存储只支持单实例运行；不要在共用这份
+数据目录的情况下横向扩容。私有 GHCR 包需要使用具有 `read:packages` 权限的 GitHub
+令牌拉取，也可以在 GitHub Packages 中将镜像包改为公开。
+
 ## 验证
 
 ```bash

@@ -9,7 +9,12 @@ import uuid
 from pathlib import Path
 from threading import RLock
 
-ROOT = Path(os.getenv("PDF_EDITOR_DATA", Path(__file__).parents[3] / "data")).resolve()
+configured_root = os.getenv("PDF_EDITOR_DATA")
+ROOT = (
+    Path(configured_root)
+    if configured_root
+    else Path(__file__).resolve().parents[3] / "data"
+).resolve()
 SOURCES = ROOT / "sources"
 EXPORTS = ROOT / "exports"
 META = ROOT / "meta"

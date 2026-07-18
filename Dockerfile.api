@@ -1,6 +1,24 @@
 FROM python:3.11-slim
-WORKDIR /app
-COPY apps/api /app
-RUN pip install --no-cache-dir .
-CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]
 
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PDF_EDITOR_DATA=/app/data
+
+WORKDIR /app
+
+RUN addgroup --system app && adduser --system --ingroup app app
+
+COPY --chown=app:app apps/api /app
+RUN pip install --no-cache-dir .
+
+RUN mkdir -p /app/data && chown app:app /app/data
+
+USER app
+
+VOLUME ["/app/data"]
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"
+
+CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]
