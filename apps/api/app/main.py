@@ -194,6 +194,12 @@ def download(version_id: str):
         value = storage.version(version_id)
     except KeyError as exc:
         missing(exc)
+    filename = value.get("filename")
+    if not filename:
+        try:
+            filename = storage.document(value["document_id"])["filename"]
+        except KeyError:
+            filename = f"edited-{version_id}.pdf"
     return FileResponse(
-        value["path"], media_type="application/pdf", filename=f"edited-{version_id}.pdf"
+        value["path"], media_type="application/pdf", filename=filename
     )

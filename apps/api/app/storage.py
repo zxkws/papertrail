@@ -95,6 +95,7 @@ def save_draft(value: dict) -> None:
 def publish_export(
     document_id: str, temp_path: Path, canonical_hash: str, draft_revision: int
 ) -> dict:
+    source_document = document(document_id)
     version_id = str(uuid.uuid4())
     final_path = EXPORTS / f"{version_id}.pdf"
     fd, staged_path = tempfile.mkstemp(
@@ -112,6 +113,7 @@ def publish_export(
     version = {
         "id": version_id,
         "document_id": document_id,
+        "filename": source_document["filename"],
         "path": str(final_path),
         "sha256": digest,
         "canonical_hash": canonical_hash,

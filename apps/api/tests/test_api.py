@@ -81,6 +81,30 @@ def save_export(draft, operations):
     return fitz.open(stream=output, filetype="pdf")
 
 
+def test_export_download_uses_original_filename():
+    uploaded = client.post(
+        "/api/v1/documents",
+        files={"file": ("original-statement.pdf", sample(), "application/pdf")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    draft = client.post(
+        f"/api/v1/documents/{uploaded.json()['document_id']}/drafts"
+    )
+    assert draft.status_code == 201, draft.text
+    exported = client.post(f"/api/v1/drafts/{draft.json()['id']}/exports")
+    assert exported.status_code == 201, exported.text
+
+    downloaded = client.get(
+        f"/api/v1/versions/{exported.json()['version_id']}/download"
+    )
+
+    assert downloaded.status_code == 200
+    assert (
+        downloaded.headers["content-disposition"]
+        == 'attachment; filename="original-statement.pdf"'
+    )
+
+
 def test_upload_layout_revision_conflict_and_immutable_source():
     source = sample()
     digest = hashlib.sha256(source).hexdigest()

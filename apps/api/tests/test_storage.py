@@ -19,6 +19,9 @@ def test_publish_export_stages_inside_export_volume(monkeypatch, tmp_path):
         return real_replace(source, destination)
 
     monkeypatch.setattr(storage.os, "replace", reject_cross_device_replace)
+    monkeypatch.setattr(
+        storage, "document", lambda document_id: {"filename": "source.pdf"}
+    )
 
     version = storage.publish_export("document-id", rendered_pdf, "hash", 1)
 
