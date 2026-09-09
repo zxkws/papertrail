@@ -413,18 +413,6 @@ aside {
 .rail-item a {
   border-top: none;
 }
-.rail-item button.ocr {
-  width: 100%;
-  margin: 0 0 10px;
-  padding: 5px 8px;
-  border: 1px solid var(--line);
-  background: transparent;
-  font: 10px Manrope;
-  cursor: pointer;
-}
-.rail-item button.ocr:hover:enabled {
-  border-color: var(--ink);
-}
 .matches {
   margin: 4px 0 12px;
   padding-left: 16px;
@@ -439,20 +427,179 @@ aside {
   color: var(--ink);
   text-decoration: underline;
 }
-pre.raw {
-  background: #f2f3f0;
-  padding: 8px;
-  margin: 4px 0 12px;
-  max-height: 220px;
-  overflow: auto;
-  font: 10px/1.45 DM Mono;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
 .hit.raster {
   border-color: rgba(11, 87, 208, 0.5);
 }
 .hit.raster.selected {
   border: 2px solid #0b57d0;
   cursor: default;
+}
+
+/* 位图/矢量分流相关的界面元素。
+   沿用项目既有的 ink + acid 配色与方角、DM Mono 数值的编辑风，
+   不引入第二套视觉语言。 */
+
+/* 左侧页面列表 */
+.rail-item .page-num {
+  font: 14px DM Mono;
+}
+.page-badge {
+  font: 9px/1 Manrope;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 4px 6px;
+  text-transform: uppercase;
+}
+.is-raster .page-badge {
+  background: var(--acid);
+  color: var(--ink);
+}
+.is-vector .page-badge {
+  background: var(--ink);
+  color: white;
+}
+.page-desc {
+  font: 9px Manrope;
+  color: #687169;
+  padding-bottom: 8px;
+}
+.ocr-btn {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 6px 8px;
+  font: 10px Manrope;
+  font-weight: 700;
+  border: 1px solid var(--ink);
+}
+.ocr-btn.pending {
+  background: var(--ink);
+  color: white;
+}
+.ocr-btn.done {
+  background: transparent;
+  color: var(--ink);
+}
+.ocr-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 检查器面板 */
+.tool-panel,
+.raster-panel,
+.vector-panel {
+  display: block;
+}
+.panel-header {
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--ink);
+}
+.panel-header p {
+  margin: 5px 0 0;
+  font: 10px DM Mono;
+  color: #687169;
+}
+.raster-tag {
+  background: var(--acid);
+  color: var(--ink);
+}
+.vector-tag {
+  background: var(--ink);
+  color: white;
+}
+
+.workflow-step {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+.workflow-step h4 {
+  margin: 0 0 10px;
+  padding-bottom: 5px;
+  font: 9px Manrope;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #687169;
+  border-bottom: 1px solid var(--line);
+}
+.workflow-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rematch-btn {
+  width: 100%;
+  padding: 8px;
+  font-weight: 700;
+}
+
+/* 匹配分数偏低——这是「原文与图上不一致」的可靠信号，要显眼 */
+.iou-warning {
+  margin-bottom: 12px;
+  padding: 9px 10px;
+  background: var(--acid);
+  color: var(--ink);
+  border-left: 4px solid var(--ink);
+}
+.iou-warning strong {
+  font: 11px DM Mono;
+}
+.iou-warning p {
+  margin: 4px 0 0;
+  font: 10px Manrope;
+}
+
+.diagnostics {
+  font: 10px DM Mono;
+}
+.matches .iou-val {
+  font-weight: 500;
+  color: var(--ink);
+}
+.raw-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  font: 10px DM Mono;
+}
+.raw-table td {
+  padding: 4px 5px;
+  border-bottom: 1px solid var(--line);
+  word-break: break-all;
+  vertical-align: top;
+}
+.raw-table td:first-child {
+  width: 42%;
+  color: #687169;
+}
+
+/* 页面类型标牌：放在页面上方的空白处，不能盖住画布，
+   否则左上角的文字既看不见也点不中 */
+.page-type-tag {
+  position: absolute;
+  left: 0;
+  top: -22px;
+  padding: 4px 7px;
+  font: 9px Manrope;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.page-type-tag.raster {
+  background: var(--acid);
+  color: var(--ink);
+}
+.page-type-tag.vector {
+  background: var(--ink);
+  color: white;
+}
+.raster-header {
+  border-bottom-color: var(--acid);
+}
+.vector-header {
+  border-bottom-color: var(--ink);
 }

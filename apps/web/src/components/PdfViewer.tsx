@@ -182,6 +182,9 @@ function Page({
         height: layout.height_pt * scale,
       }}
     >
+      <div className={`page-type-tag ${layout.kind}`}>
+        {layout.kind === "raster" ? "位图页 (扫描件)" : "矢量页 (原生文字)"}
+      </div>
       <canvas ref={canvas} />
       <div
         className="hit-layer"

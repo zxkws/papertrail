@@ -331,29 +331,36 @@ export default function App() {
             <h2>{doc.page_count} 页</h2>
             <code>{doc.upload_sha256.slice(0, 16)}…</code>
             <div className="rail">
-              {layouts.map((l) => (
-                <div className="rail-item" key={l.page_index}>
-                  <a href={`#page-${l.page_index}`}>
-                    {String(l.page_index + 1).padStart(2, "0")}
-                    <span>
-                      {l.kind === "raster"
-                        ? "扫描页 · 无文字对象"
-                        : `${l.elements.length} 个文本框`}
-                    </span>
-                  </a>
-                  {l.kind === "raster" && (
-                    <button
-                      className="ocr"
-                      disabled={!!busy}
-                      onClick={() => runOcr(l.page_index)}
-                    >
-                      {rasterBoxes[l.page_index]
-                        ? `重新识别（当前 ${rasterBoxes[l.page_index].length} 框）`
-                        : "识别文字"}
-                    </button>
-                  )}
-                </div>
-              ))}
+              {layouts.map((l) => {
+                const isRaster = l.kind === "raster";
+                const boxes = rasterBoxes[l.page_index];
+                return (
+                  <div className={`rail-item ${isRaster ? "is-raster" : "is-vector"}`} key={l.page_index}>
+                    <a href={`#page-${l.page_index}`}>
+                      <span className="page-num">{String(l.page_index + 1).padStart(2, "0")}</span>
+                      {isRaster ? (
+                        <span className="page-badge raster">位图页</span>
+                      ) : (
+                        <span className="page-badge vector">矢量页</span>
+                      )}
+                    </a>
+                    <div className="page-desc">
+                      {isRaster ? "扫描件/截图，需识别文字" : `包含 ${l.elements.length} 个文本框`}
+                    </div>
+                    {isRaster && (
+                      <button
+                        className={`ocr-btn ${boxes ? 'done' : 'pending'}`}
+                        disabled={!!busy}
+                        onClick={() => runOcr(l.page_index)}
+                      >
+                        {boxes
+                          ? `重新识别（当前 ${boxes.length} 框）`
+                          : "识别文字"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <div className="warnings">
               <b>编辑提示</b>
@@ -420,8 +427,9 @@ export default function App() {
                 覆盖区域
               </button>
             </div>
-            {tool === "cover" ? (
-              <>
+
+            {tool === "cover" && (
+              <div className="tool-panel">
                 <p className="muted">
                   在任意页面拖框确认覆盖范围；单击会创建 170×32 pt
                   区域。预览会即时显示。
@@ -436,11 +444,13 @@ export default function App() {
                     }
                   />
                 </label>
-              </>
-            ) : (
-              <>
+              </div>
+            )}
+
+            {tool === "add" && (
+              <div className="tool-panel">
                 <label>
-                  {tool === "add" ? "新增文字内容" : "文字内容"}
+                  新增文字内容
                   <textarea
                     value={text}
                     onChange={(e) => setText(e.target.value)}
@@ -466,188 +476,238 @@ export default function App() {
                     />
                   </label>
                 </div>
-                {tool === "add" && (
-                  <p className="muted">
-                    现在到目标页点击或拖框放置文字。新增后可直接选中、拖动、替换或删除。
-                  </p>
-                )}
-              </>
+                <p className="muted">
+                  现在到目标页点击或拖框放置文字。新增后可直接选中、拖动、替换或删除。
+                </p>
+              </div>
             )}
-            {selected?.kind === "raster" && selectedBox && (
-              <>
-                <hr />
-                <span className="tag">扫描页文字 · 像素重绘</span>
-                <label>
-                  原文（用于标定字号与字体，OCR 认错时改这里）
-                  <input
-                    value={original}
-                    onChange={(e) => setOriginal(e.target.value)}
-                  />
-                </label>
-                <button onClick={rematch} disabled={!!busy}>
-                  按原文重新匹配
-                </button>
-                <label>
-                  新文字
-                  <textarea
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                  />
-                </label>
-                <label>
-                  字体
-                  <select value={font} onChange={(e) => setFont(e.target.value)}>
-                    {fonts?.fonts.map((f) => (
-                      <option key={`${f.path}:${f.index}`} value={f.name}>
-                        {f.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="style-row">
-                  <label>
-                    字号 pt
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="1"
-                      value={fontSize}
-                      onChange={(e) => setFontSize(Number(e.target.value))}
-                    />
-                  </label>
-                  <label>
-                    颜色
-                    <input
-                      type="color"
-                      value={textColor}
-                      onChange={(e) => setTextColor(e.target.value)}
-                    />
-                  </label>
-                  <label>
-                    擦除
-                    <select
-                      value={erase}
-                      onChange={(e) => setErase(e.target.value)}
-                    >
-                      {["auto", "solid", "smooth", "telea", "ns"].map((m) => (
-                        <option key={m}>{m}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                {fonts && !fonts.text_layout.kerning && (
-                  <p className="muted">
-                    服务端缺少 raqm，重绘不做字距调整，匹配分数与保真度都会下降。
-                  </p>
-                )}
-                {selectedBox.suggest.iou !== undefined &&
-                  selectedBox.suggest.iou < 0.7 && (
-                    <p className="muted">
-                      匹配分数偏低（{selectedBox.suggest.iou}），多半是原文与图上不一致，
-                      改完原文再点重新匹配。
-                    </p>
-                  )}
-                <p className="label">字体匹配 soft-IoU</p>
-                <ul className="matches">
-                  {selectedBox.font_matches.slice(0, 6).map((m) => (
-                    <li
-                      key={m.name}
-                      onClick={() => {
-                        setFont(m.name);
-                        setFontSize(m.font_size_pt);
-                      }}
-                    >
-                      {m.iou} {m.name} {m.font_size_pt}pt
-                    </li>
-                  ))}
-                </ul>
-                <p className="label">分析结果</p>
-                <pre className="raw">
-                  {JSON.stringify(
-                    {
-                      score: selectedBox.score,
-                      angle: selectedBox.angle,
-                      bbox: selectedBox.bbox,
-                      ink_bbox: selectedBox.ink_bbox,
-                      text_color: selectedBox.text_color,
-                      bg_color: selectedBox.bg_color,
-                      bg_std: selectedBox.bg_std,
-                      bg_residual: selectedBox.bg_residual,
-                      stroke_width: selectedBox.stroke_width,
-                      suggest: selectedBox.suggest,
-                    },
-                    null,
-                    1,
-                  )}
-                </pre>
-                <button className="primary" onClick={replaceRaster}>
-                  应用替换
-                </button>
-                <button
-                  className="danger"
-                  onClick={() =>
-                    add(
-                      rasterDeleteOp(
-                        selected.id,
-                        selected.page_index,
-                        selectedBox,
-                        erase,
-                      ),
-                    )
-                  }
-                >
-                  只擦除不重写
-                </button>
-              </>
-            )}
-            {selected && selected.kind !== "raster" && (
-              <>
-                <hr />
-                <span className="tag">
-                  {selected.kind === "added"
-                    ? "新增元素"
-                    : selected.editability === "native"
-                      ? "原生文字"
-                      : "仅覆盖"}
-                </span>
-                <h3>{selected.text}</h3>
-                {selected.deleted ? (
-                  <p className="deleted-note">此元素已删除。请撤销后再操作。</p>
-                ) : selected.editability === "cover_only" ? (
-                  <p className="muted">
-                    复杂方向文字仅允许使用覆盖区域和新增文字，不能原生替换、移动或删除。
-                  </p>
-                ) : (
-                  <>
-                    <button
-                      className="primary"
-                      disabled={disabled}
-                      onClick={replace}
-                    >
-                      应用替换
-                    </button>
-                    <p className="muted">可在画布上直接拖动所选文字。</p>
-                    <button
-                      className="danger"
-                      disabled={disabled}
-                      onClick={() =>
-                        add({
-                          type: "delete_text",
-                          page_index: selected.page_index,
-                          target_element_id: selected.id,
-                        })
-                      }
-                    >
-                      删除文字
-                    </button>
-                  </>
-                )}
-              </>
-            )}{" "}
-            {!selected && tool === "select" && (
+
+            {tool === "select" && !selected && (
               <p className="muted">
                 点击页面中的文字框开始编辑；原生或新增文字均可直接拖动。
               </p>
+            )}
+
+            {tool === "select" && selected?.kind === "raster" && selectedBox && (
+              <div className="raster-panel">
+                <div className="panel-header raster-header">
+                  <span className="tag raster-tag">位图页文字</span>
+                  <p>像素重绘模式</p>
+                </div>
+
+                <div className="workflow-step">
+                  <h4>1. 确认原文与匹配</h4>
+                  {selectedBox.suggest.iou !== undefined && selectedBox.suggest.iou < 0.7 && (
+                    <div className="iou-warning">
+                      <strong>⚠️ 匹配分数低 ({selectedBox.suggest.iou})</strong>
+                      <p>原文与图上可能不一致。请修正原文后重新匹配。</p>
+                    </div>
+                  )}
+                  <label>
+                    原文（用于标定字号与字体，OCR 认错时改这里）
+                    <input
+                      value={original}
+                      onChange={(e) => setOriginal(e.target.value)}
+                    />
+                  </label>
+                  <button onClick={rematch} disabled={!!busy} className="rematch-btn">
+                    按原文重新匹配
+                  </button>
+                </div>
+
+                <div className="workflow-step">
+                  <h4>2. 修改内容</h4>
+                  <label>
+                    新文字
+                    <textarea
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    字体
+                    <select value={font} onChange={(e) => setFont(e.target.value)}>
+                      {fonts?.fonts.map((f) => (
+                        <option key={`${f.path}:${f.index}`} value={f.name}>
+                          {f.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="style-row">
+                    <label>
+                      字号 pt
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="1"
+                        value={fontSize}
+                        onChange={(e) => setFontSize(Number(e.target.value))}
+                      />
+                    </label>
+                    <label>
+                      颜色
+                      <input
+                        type="color"
+                        value={textColor}
+                        onChange={(e) => setTextColor(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      擦除
+                      <select
+                        value={erase}
+                        onChange={(e) => setErase(e.target.value)}
+                      >
+                        {["auto", "solid", "smooth", "telea", "ns"].map((m) => (
+                          <option key={m}>{m}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  {fonts && !fonts.text_layout.kerning && (
+                    <p className="muted">
+                      服务端缺少 raqm，重绘不做字距调整，匹配分数与保真度都会下降。
+                    </p>
+                  )}
+                </div>
+
+                <div className="workflow-step">
+                  <h4>3. 诊断信息</h4>
+                  <div className="diagnostics">
+                    <p className="label">字体匹配 soft-IoU</p>
+                    <ul className="matches">
+                      {selectedBox.font_matches.slice(0, 6).map((m) => (
+                        <li
+                          key={m.name}
+                          onClick={() => {
+                            setFont(m.name);
+                            setFontSize(m.font_size_pt);
+                          }}
+                        >
+                          <span className="iou-val">{m.iou}</span> {m.name} {m.font_size_pt}pt
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="label">底层分析值</p>
+                    <table className="raw-table">
+                      <tbody>
+                        <tr><td>score</td><td>{selectedBox.score}</td></tr>
+                        <tr><td>angle</td><td>{selectedBox.angle}</td></tr>
+                        <tr><td>bbox</td><td>{JSON.stringify(selectedBox.bbox)}</td></tr>
+                        <tr><td>ink_bbox</td><td>{JSON.stringify(selectedBox.ink_bbox)}</td></tr>
+                        <tr><td>text_color</td><td>{JSON.stringify(selectedBox.text_color)}</td></tr>
+                        <tr><td>bg_color</td><td>{JSON.stringify(selectedBox.bg_color)}</td></tr>
+                        <tr><td>bg_std</td><td>{JSON.stringify(selectedBox.bg_std)}</td></tr>
+                        <tr><td>bg_residual</td><td>{selectedBox.bg_residual}</td></tr>
+                        <tr><td>stroke_width</td><td>{selectedBox.stroke_width}</td></tr>
+                        <tr><td>suggest.erase</td><td>{selectedBox.suggest.erase}</td></tr>
+                        <tr><td>suggest.iou</td><td>{selectedBox.suggest.iou}</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="workflow-actions">
+                  <button className="primary" onClick={replaceRaster}>
+                    应用替换
+                  </button>
+                  <button
+                    className="danger"
+                    onClick={() =>
+                      add(
+                        rasterDeleteOp(
+                          selected.id,
+                          selected.page_index,
+                          selectedBox,
+                          erase,
+                        ),
+                      )
+                    }
+                  >
+                    只擦除不重写
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {tool === "select" && selected && selected.kind !== "raster" && (
+              <div className="vector-panel">
+                <div className="panel-header vector-header">
+                  <span className="tag vector-tag">
+                    {selected.kind === "added"
+                      ? "新增元素"
+                      : selected.editability === "native"
+                        ? "原生文字"
+                        : "仅覆盖"}
+                  </span>
+                  <p>矢量对象</p>
+                </div>
+                
+                <div className="workflow-step">
+                  <label>
+                    文字内容
+                    <textarea
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                    />
+                  </label>
+                  <div className="style-row">
+                    <label>
+                      字号
+                      <input
+                        type="number"
+                        min="4"
+                        max="144"
+                        value={fontSize}
+                        onChange={(e) => setFontSize(Number(e.target.value))}
+                      />
+                    </label>
+                    <label>
+                      颜色
+                      <input
+                        type="color"
+                        value={textColor}
+                        onChange={(e) => setTextColor(e.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  {selected.deleted ? (
+                    <p className="deleted-note">此元素已删除。请撤销后再操作。</p>
+                  ) : selected.editability === "cover_only" ? (
+                    <p className="muted">
+                      复杂方向文字仅允许使用覆盖区域和新增文字，不能原生替换、移动或删除。
+                    </p>
+                  ) : (
+                    <>
+                      <p className="muted">可在画布上直接拖动所选文字。</p>
+                      <div className="workflow-actions">
+                        <button
+                          className="primary"
+                          disabled={disabled}
+                          onClick={replace}
+                        >
+                          应用替换
+                        </button>
+                        <button
+                          className="danger"
+                          disabled={disabled}
+                          onClick={() =>
+                            add({
+                              type: "delete_text",
+                              page_index: selected.page_index,
+                              target_element_id: selected.id,
+                            })
+                          }
+                        >
+                          删除文字
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
             )}
           </aside>
         </div>
