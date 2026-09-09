@@ -10,6 +10,8 @@ import numpy as np
 import cv2
 from PIL import Image, ImageDraw, ImageFont
 
+from .fonts import covers as covers_text
+
 
 def load(font, size):
     if isinstance(font, dict):
@@ -152,6 +154,8 @@ def match_font(candidates, text, ink_bbox, region, observed_soft, top=8, refine=
 
     coarse = []
     for entry in candidates:
+        if not covers_text(entry, text):
+            continue  # 画不出这行字的字体，形状分数再高也没意义
         calib = calibrate(entry, text, ink_bbox)
         if calib is None:
             continue

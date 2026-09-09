@@ -126,3 +126,25 @@ def test_edit_leaves_the_rest_of_the_image_untouched():
     before[y0:y1, x0:x1] = 0
     after[y0:y1, x0:x1] = 0
     assert np.array_equal(before, after)
+
+
+def test_latin_font_cannot_render_cjk_and_falls_back():
+    """拉丁字体画中文只会出豆腐块，必须自动换成画得出的字体。"""
+    latin = fonts.find("Courier New") or fonts.find("Liberation Mono")
+    if latin is None:
+        pytest.skip("系统里没有纯拉丁字体可用于此用例")
+    assert fonts.covers(latin, "Invoice 2024") is True
+    assert fonts.covers(latin, "发票号码") is False
+
+    picked = fonts.first_covering("发票号码")
+    assert picked is not None and fonts.covers(picked, "发票号码")
+
+    image, quad, _ = draw("Invoice No 123", "Courier New", 28)
+    out, used = pipeline.apply_edits(image, [{
+        "quad": quad, "original_text": "Invoice No 123", "text": "发票号码 123",
+        "font": latin["name"],
+    }])
+    assert used[0].get("font_fallback_from") == latin["name"]
+    assert used[0]["font"] != latin["name"]
+    # 落笔的字体必须真的画得出中文
+    assert fonts.covers(fonts.find(used[0]["font"]), "发票号码")

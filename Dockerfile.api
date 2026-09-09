@@ -10,26 +10,26 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# 系统依赖放在拷贝代码之前，代码一改就重下 100 MB 系统包是不必要的。
+#   libGL —— rapidocr 会带入非 headless 的 opencv-python，导入时要它；
+#   字体  —— slim 镜像里几乎没有字体，而重绘要从系统字体里挑最接近的一款，
+#            没有字体位图编辑会直接报「找不到可用字体」。
+#            Liberation 与 Arial/Times/Courier 度量兼容，Noto CJK 负责中日韩。
 RUN addgroup --system app \
     && adduser --system --ingroup app app \
     && apt-get update \
     && apt-get install --yes --no-install-recommends gosu \
+    && if [ "$INSTALL_RASTER" = "1" ]; then \
+           apt-get install --yes --no-install-recommends \
+               libgl1 libglib2.0-0 \
+               fonts-liberation fonts-dejavu-core fonts-noto-core fonts-noto-cjk; \
+       fi \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --chown=app:app apps/api /app
 COPY scripts/docker-entrypoint-api.sh /usr/local/bin/docker-entrypoint-api
-# 两件必需品：
-#   libGL —— rapidocr 会带入非 headless 的 opencv-python，导入时要它；
-#   字体  —— slim 镜像里几乎没有字体，而重绘要从系统字体里挑最接近的一款，
-#            没有字体的话位图编辑会直接报「找不到可用字体」。
-#            Liberation 与 Arial/Times/Courier 度量兼容，是文档类最常见的替身。
 RUN if [ "$INSTALL_RASTER" = "1" ]; then \
-        apt-get update \
-        && apt-get install --yes --no-install-recommends \
-            libgl1 libglib2.0-0 \
-            fonts-liberation fonts-dejavu-core fonts-noto-core fonts-noto-cjk \
-        && rm -rf /var/lib/apt/lists/* \
-        && pip install --no-cache-dir ".[raster]"; \
+        pip install --no-cache-dir ".[raster]"; \
     else \
         pip install --no-cache-dir .; \
     fi

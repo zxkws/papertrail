@@ -97,6 +97,14 @@ def apply_edit(img_bgr, edit: dict) -> tuple[np.ndarray, dict]:
     entry = F.find(edit.get("font") or "") or F.default_font()
     if entry is None:
         raise RuntimeError("系统里没有找到可用字体")
+    fallback_from = None
+    if not F.covers(entry, new_text):
+        # 指定/匹配到的字体缺字（典型是拉丁字体遇到中文），换一个画得出的，
+        # 否则导出的就是一排豆腐块
+        alternative = F.first_covering(new_text)
+        if alternative is None:
+            raise RuntimeError(f"没有字体能渲染这段文字：{new_text[:20]!r}")
+        fallback_from, entry = entry["name"], alternative
     calib_text = original or new_text
     calib = R.calibrate(entry, calib_text, info["ink_bbox"], mode=edit.get("fit") or "height")
     if calib is None:
@@ -128,6 +136,8 @@ def apply_edit(img_bgr, edit: dict) -> tuple[np.ndarray, dict]:
 
     out_pil = R.draw_text(bgr_to_pil(erased), new_text, calib["font"], xy, color,
                           angle=angle, opacity=int(edit.get("opacity") or 255))
+    if fallback_from:
+        used["font_fallback_from"] = fallback_from
     used.update(font=entry["name"], size=calib["size"], color=color, align=align,
                 baseline=[round(xy[0], 2), round(xy[1], 2)], calibrated_on=calib_text)
     return pil_to_bgr(out_pil), used
