@@ -97,7 +97,8 @@ export interface VisualElement {
   text: string;
   bbox: BBox;
   style: TextStyle;
-  kind: "native" | "added";
+  /** raster：扫描页上 OCR 出来的文字框，没有对应的 PDF 文字对象 */
+  kind: "native" | "added" | "raster";
   deleted: boolean;
   changed: boolean;
   editability: "native" | "cover_only";
@@ -106,4 +107,26 @@ export interface DocumentInfo {
   document_id: string;
   upload_sha256: string;
   page_count: number;
+}
+
+export interface FontEntry {
+  name: string;
+  family: string;
+  style: string;
+  path: string;
+  index: number;
+}
+export interface FontsResponse {
+  fonts: FontEntry[];
+  default: FontEntry | null;
+  ocr_engines: string[];
+  /** 缺少 raqm 时不做字距调整，重绘保真度会下降 */
+  text_layout: { kerning: boolean; raqm: string | null; freetype: string | null };
+}
+export interface RasterOcrResult {
+  engine: string;
+  dpi: number;
+  scale: number;
+  count: number;
+  boxes: RasterBox[];
 }

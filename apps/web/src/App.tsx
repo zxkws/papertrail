@@ -4,6 +4,14 @@ import { saveDraftWithRetry, saveThenExport } from "./lib/exportWorkflow";
 import { fitBbox } from "./lib/fitBbox";
 import { covers, deriveElements } from "./lib/operationState";
 import {
+  boxStyle,
+  boxText,
+  deriveRasterElements,
+  rasterDeleteOp,
+  rasterId,
+  rasterReplaceOp,
+} from "./lib/rasterState";
+import {
   commit,
   initialHistory,
   redo,
@@ -14,8 +22,10 @@ import { PdfViewer } from "./components/PdfViewer";
 import type {
   BBox,
   DocumentInfo,
+  FontsResponse,
   Layout,
   Operation,
+  RasterBox,
   VisualElement,
 } from "./types";
 import "./styles.css";
@@ -33,12 +43,25 @@ export default function App() {
   const [textColor, setTextColor] = useState("#17201b");
   const [coverColor, setCoverColor] = useState("#FFFFFF");
   const [tool, setTool] = useState<Tool>("select");
+  const [rasterBoxes, setRasterBoxes] = useState<Record<number, RasterBox[]>>({});
+  const [fonts, setFonts] = useState<FontsResponse>();
+  const [original, setOriginal] = useState("");
+  const [font, setFont] = useState("");
+  const [erase, setErase] = useState("auto");
   const [busy, setBusy] = useState("");
   const [download, setDownload] = useState("");
   const [error, setError] = useState("");
   const ops = history.present;
-  const visual = useMemo(() => deriveElements(layouts, ops), [layouts, ops]);
+  const visual = useMemo(
+    () => [
+      ...deriveElements(layouts, ops),
+      ...deriveRasterElements(rasterBoxes, ops),
+    ],
+    [layouts, ops, rasterBoxes],
+  );
   const selected = visual.find((e) => e.id === selectedId);
+  const selectedBox =
+    selected?.kind === "raster" ? rasterBox(selected.id) : undefined;
   const coverOverlays = useMemo(() => covers(ops), [ops]);
   async function upload(file: File) {
     setBusy("正在读取结构");
@@ -55,6 +78,7 @@ export default function App() {
       setDraft(await api.createDraft(d.document_id));
       setHistory(initialHistory);
       setSelectedId(undefined);
+      setRasterBoxes({});
       setDownload("");
     } catch (e) {
       setError(String(e));
@@ -76,6 +100,86 @@ export default function App() {
     setFontSize(e.style.font_size_pt);
     setTextColor(e.style.color);
     setTool("select");
+    if (e.kind === "raster") {
+      const box = rasterBox(e.id);
+      // 原文可改：OCR 认错时改这里再重新匹配，字号和字体是按它标定出来的
+      setOriginal(box ? boxText(box) : e.text);
+      setFont(e.style.font_family);
+      setErase(box?.suggest.erase ?? "auto");
+    }
+  }
+
+  /** 由元素 id 反查这次识别的原始框（携带 quad 和全部分析值）。 */
+  function rasterBox(id: string): RasterBox | undefined {
+    for (const [page, list] of Object.entries(rasterBoxes)) {
+      const hit = list.findIndex((_, i) => rasterId(Number(page), i) === id);
+      if (hit >= 0) return list[hit];
+    }
+    return undefined;
+  }
+
+  async function runOcr(page: number) {
+    if (!doc) return;
+    setBusy(`识别第 ${page + 1} 页`);
+    setError("");
+    try {
+      if (!fonts) setFonts(await api.fonts());
+      const result = await api.rasterOcr(doc.document_id, page);
+      setRasterBoxes((prev) => ({ ...prev, [page]: result.boxes }));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  /** 改过原文后重新标定字号与字体。 */
+  async function rematch() {
+    if (!doc || !selected || selected.kind !== "raster") return;
+    const box = rasterBox(selected.id);
+    if (!box) return;
+    setBusy("重新匹配字体");
+    try {
+      const fresh = await api.rasterInspect(
+        doc.document_id,
+        selected.page_index,
+        box.quad,
+        original,
+      );
+      setRasterBoxes((prev) => {
+        const list = [...(prev[selected.page_index] ?? [])];
+        const at = list.findIndex(
+          (_, i) => rasterId(selected.page_index, i) === selected.id,
+        );
+        if (at >= 0) list[at] = fresh;
+        return { ...prev, [selected.page_index]: list };
+      });
+      const style = boxStyle(fresh);
+      setFont(style.font_family);
+      setFontSize(style.font_size_pt);
+      setTextColor(style.color);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function replaceRaster() {
+    if (!selected || selected.kind !== "raster") return;
+    const box = rasterBox(selected.id);
+    if (!box) return;
+    add(
+      rasterReplaceOp(selected.id, selected.page_index, box, {
+        text,
+        original,
+        font,
+        size: fontSize,
+        color: textColor,
+        align: "left",
+        erase,
+      }),
+    );
   }
   async function save() {
     if (!draft) return;
@@ -111,6 +215,7 @@ export default function App() {
     if (
       selected &&
       layout &&
+      selected.kind !== "raster" &&
       !selected.deleted &&
       selected.editability === "native"
     )
@@ -131,7 +236,9 @@ export default function App() {
   }
   function moveElement(id: string, page: number, bbox: BBox) {
     const item = visual.find((e) => e.id === id);
-    if (item && !item.deleted && item.editability === "native")
+    // 位图框没有对应的 PDF 文字对象，move_text 指向它会在 reducer 里报
+    // TARGET_NOT_FOUND；位置调整要通过重新框选来做
+    if (item && item.kind !== "raster" && !item.deleted && item.editability === "native")
       add({ type: "move_text", page_index: page, target_element_id: id, bbox });
   }
   function region(page: number, bbox: BBox) {
@@ -225,10 +332,27 @@ export default function App() {
             <code>{doc.upload_sha256.slice(0, 16)}…</code>
             <div className="rail">
               {layouts.map((l) => (
-                <a key={l.page_index} href={`#page-${l.page_index}`}>
-                  {String(l.page_index + 1).padStart(2, "0")}
-                  <span>{l.elements.length} 个文本框</span>
-                </a>
+                <div className="rail-item" key={l.page_index}>
+                  <a href={`#page-${l.page_index}`}>
+                    {String(l.page_index + 1).padStart(2, "0")}
+                    <span>
+                      {l.kind === "raster"
+                        ? "扫描页 · 无文字对象"
+                        : `${l.elements.length} 个文本框`}
+                    </span>
+                  </a>
+                  {l.kind === "raster" && (
+                    <button
+                      className="ocr"
+                      disabled={!!busy}
+                      onClick={() => runOcr(l.page_index)}
+                    >
+                      {rasterBoxes[l.page_index]
+                        ? `重新识别（当前 ${rasterBoxes[l.page_index].length} 框）`
+                        : "识别文字"}
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
             <div className="warnings">
@@ -349,7 +473,134 @@ export default function App() {
                 )}
               </>
             )}
-            {selected && (
+            {selected?.kind === "raster" && selectedBox && (
+              <>
+                <hr />
+                <span className="tag">扫描页文字 · 像素重绘</span>
+                <label>
+                  原文（用于标定字号与字体，OCR 认错时改这里）
+                  <input
+                    value={original}
+                    onChange={(e) => setOriginal(e.target.value)}
+                  />
+                </label>
+                <button onClick={rematch} disabled={!!busy}>
+                  按原文重新匹配
+                </button>
+                <label>
+                  新文字
+                  <textarea
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                  />
+                </label>
+                <label>
+                  字体
+                  <select value={font} onChange={(e) => setFont(e.target.value)}>
+                    {fonts?.fonts.map((f) => (
+                      <option key={`${f.path}:${f.index}`} value={f.name}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="style-row">
+                  <label>
+                    字号 pt
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      value={fontSize}
+                      onChange={(e) => setFontSize(Number(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    颜色
+                    <input
+                      type="color"
+                      value={textColor}
+                      onChange={(e) => setTextColor(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    擦除
+                    <select
+                      value={erase}
+                      onChange={(e) => setErase(e.target.value)}
+                    >
+                      {["auto", "solid", "smooth", "telea", "ns"].map((m) => (
+                        <option key={m}>{m}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {fonts && !fonts.text_layout.kerning && (
+                  <p className="muted">
+                    服务端缺少 raqm，重绘不做字距调整，匹配分数与保真度都会下降。
+                  </p>
+                )}
+                {selectedBox.suggest.iou !== undefined &&
+                  selectedBox.suggest.iou < 0.7 && (
+                    <p className="muted">
+                      匹配分数偏低（{selectedBox.suggest.iou}），多半是原文与图上不一致，
+                      改完原文再点重新匹配。
+                    </p>
+                  )}
+                <p className="label">字体匹配 soft-IoU</p>
+                <ul className="matches">
+                  {selectedBox.font_matches.slice(0, 6).map((m) => (
+                    <li
+                      key={m.name}
+                      onClick={() => {
+                        setFont(m.name);
+                        setFontSize(m.font_size_pt);
+                      }}
+                    >
+                      {m.iou} {m.name} {m.font_size_pt}pt
+                    </li>
+                  ))}
+                </ul>
+                <p className="label">分析结果</p>
+                <pre className="raw">
+                  {JSON.stringify(
+                    {
+                      score: selectedBox.score,
+                      angle: selectedBox.angle,
+                      bbox: selectedBox.bbox,
+                      ink_bbox: selectedBox.ink_bbox,
+                      text_color: selectedBox.text_color,
+                      bg_color: selectedBox.bg_color,
+                      bg_std: selectedBox.bg_std,
+                      bg_residual: selectedBox.bg_residual,
+                      stroke_width: selectedBox.stroke_width,
+                      suggest: selectedBox.suggest,
+                    },
+                    null,
+                    1,
+                  )}
+                </pre>
+                <button className="primary" onClick={replaceRaster}>
+                  应用替换
+                </button>
+                <button
+                  className="danger"
+                  onClick={() =>
+                    add(
+                      rasterDeleteOp(
+                        selected.id,
+                        selected.page_index,
+                        selectedBox,
+                        erase,
+                      ),
+                    )
+                  }
+                >
+                  只擦除不重写
+                </button>
+              </>
+            )}
+            {selected && selected.kind !== "raster" && (
               <>
                 <hr />
                 <span className="tag">

@@ -148,7 +148,13 @@ function Page({
   function elementDown(e: React.PointerEvent, item: VisualElement) {
     e.stopPropagation();
     onSelect(item);
-    if (tool === "select" && !item.deleted && item.editability === "native") {
+    // 位图框只能选中编辑，不能拖动——它没有对应的 PDF 文字对象
+    if (
+      tool === "select" &&
+      item.kind !== "raster" &&
+      !item.deleted &&
+      item.editability === "native"
+    ) {
       const r = e.currentTarget.parentElement!.getBoundingClientRect();
       const p: [number, number] = [
         (e.clientX - r.left) / scale,

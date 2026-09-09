@@ -1,4 +1,11 @@
-import type { DocumentInfo, Layout, Operation } from "../types";
+import type {
+  DocumentInfo,
+  FontsResponse,
+  Layout,
+  Operation,
+  RasterBox,
+  RasterOcrResult,
+} from "../types";
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -41,6 +48,28 @@ export const api = {
   export: (draft: string) =>
     checked<{ version_id: string }>(
       fetch(`/api/v1/drafts/${draft}/exports`, { method: "POST" }),
+    ),
+  fonts: () => checked<FontsResponse>(fetch("/api/v1/fonts")),
+  rasterOcr: (id: string, page: number, dpi = 200) =>
+    checked<RasterOcrResult>(
+      fetch(`/api/v1/documents/${id}/pages/${page}/raster/ocr`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dpi, match_fonts: true }),
+      }),
+    ),
+  rasterInspect: (
+    id: string,
+    page: number,
+    quad: [number, number][],
+    text: string,
+  ) =>
+    checked<RasterBox>(
+      fetch(`/api/v1/documents/${id}/pages/${page}/raster/inspect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quad, text, match_fonts: !!text }),
+      }),
     ),
   file: (id: string) => `/api/v1/documents/${id}/file`,
   download: (id: string) => `/api/v1/versions/${id}/download`,

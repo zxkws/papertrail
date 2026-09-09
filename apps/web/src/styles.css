@@ -406,3 +406,53 @@ aside {
     display: none;
   }
 }
+
+.rail-item {
+  border-top: 1px solid var(--line);
+}
+.rail-item a {
+  border-top: none;
+}
+.rail-item button.ocr {
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  font: 10px Manrope;
+  cursor: pointer;
+}
+.rail-item button.ocr:hover:enabled {
+  border-color: var(--ink);
+}
+.matches {
+  margin: 4px 0 12px;
+  padding-left: 16px;
+  font: 11px DM Mono;
+  color: #4a534b;
+}
+.matches li {
+  cursor: pointer;
+  padding: 1px 0;
+}
+.matches li:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+pre.raw {
+  background: #f2f3f0;
+  padding: 8px;
+  margin: 4px 0 12px;
+  max-height: 220px;
+  overflow: auto;
+  font: 10px/1.45 DM Mono;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.hit.raster {
+  border-color: rgba(11, 87, 208, 0.5);
+}
+.hit.raster.selected {
+  border: 2px solid #0b57d0;
+  cursor: default;
+}
