@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import type { BBox, Layout, VisualElement } from "../types";
+import type { BBox, Layout, RasterPreview, VisualElement } from "../types";
 import type { covers as coverFn } from "../lib/operationState";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -12,6 +12,7 @@ interface Props {
   layouts: Layout[];
   elements: VisualElement[];
   covers: Cover[];
+  previews: Record<string, RasterPreview>;
   selected?: string;
   tool: Tool;
   onSelect: (e: VisualElement) => void;
@@ -23,6 +24,7 @@ export function PdfViewer({
   layouts,
   elements,
   covers,
+  previews,
   selected,
   tool,
   onSelect,
@@ -47,6 +49,7 @@ export function PdfViewer({
           layout={l}
           elements={elements.filter((e) => e.page_index === l.page_index)}
           covers={covers.filter((c) => c.page_index === l.page_index)}
+          previews={previews}
           selected={selected}
           tool={tool}
           onSelect={onSelect}
@@ -62,6 +65,7 @@ function Page({
   layout,
   elements,
   covers,
+  previews,
   selected,
   tool,
   onSelect,
@@ -72,6 +76,7 @@ function Page({
   layout: Layout;
   elements: VisualElement[];
   covers: Cover[];
+  previews: Record<string, RasterPreview>;
   selected?: string;
   tool: Tool;
   onSelect: (e: VisualElement) => void;
@@ -199,8 +204,10 @@ function Page({
             style={box(c.bbox, scale, c.color)}
           />
         ))}
-        {elements.map((item) =>
-          item.deleted ? (
+        {elements.map((item) => {
+          const shot = previews[item.id];
+          const showsText = !shot && (item.changed || item.kind === "added");
+          return item.deleted ? (
             <div
               key={item.id}
               className="deleted-overlay"
@@ -210,26 +217,34 @@ function Page({
             <button
               title={item.text}
               aria-label={`编辑文字 ${item.text}`}
-              className={`hit ${selected === item.id ? "selected" : ""} ${item.editability} ${item.kind} ${item.changed ? "changed" : ""}`}
+              className={`hit ${selected === item.id ? "selected" : ""} ${item.editability} ${item.kind} ${item.changed ? "changed" : ""} ${showsText && item.kind === "raster" ? "placeholder" : ""}`}
               key={item.id}
               onPointerDown={(e) => elementDown(e, item)}
               style={{
-                ...box(
-                  item.bbox,
-                  scale,
-                  item.changed || item.kind === "added"
-                    ? "white"
-                    : "transparent",
-                ),
+                ...box(item.bbox, scale, showsText ? "white" : "transparent"),
                 color: item.style.color,
                 fontSize: item.style.font_size_pt * scale,
                 textAlign: item.style.align,
               }}
             >
-              {item.changed || item.kind === "added" ? item.text : ""}
+              {showsText ? item.text : ""}
             </button>
-          ),
-        )}
+          );
+        })}
+        {elements.map((item) => {
+          const shot = previews[item.id];
+          if (!shot) return null;
+          // 服务端按真实流水线渲染的结果，与导出逐像素一致
+          return (
+            <img
+              key={`preview-${item.id}`}
+              className="raster-preview"
+              alt=""
+              src={shot.image}
+              style={box(shot.region_pt, scale, "transparent")}
+            />
+          );
+        })}
         {preview && (
           <div
             className={`region-preview ${tool}`}

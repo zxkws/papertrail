@@ -100,3 +100,17 @@ class RasterInspectRequest(BaseModel):
     text: str = ""
     match_fonts: bool = True
     dpi: Annotated[int, Field(ge=72, le=600)] = 200
+
+
+class RasterPreviewRequest(BaseModel):
+    """预览单条位图编辑。字段与 raster 操作的 payload/style 一致。"""
+
+    bbox: BBox
+    quad: list[tuple[float, float]] | None = None
+    text: str = ""
+    original_text: str = ""
+    font: str | None = None
+    erase: str = "auto"
+    grow: int = 3
+    style: TextStyle | None = None
+    dpi: Annotated[int, Field(ge=72, le=600)] = 200

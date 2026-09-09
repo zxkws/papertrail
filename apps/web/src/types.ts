@@ -139,3 +139,11 @@ export interface RasterOcrResult {
   count: number;
   boxes: RasterBox[];
 }
+
+/** 服务端按真实流水线渲染的预览：与导出结果逐像素一致 */
+export interface RasterPreview {
+  region_pt: BBox;
+  dpi: number;
+  used: Record<string, unknown>;
+  image: string;
+}

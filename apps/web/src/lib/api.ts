@@ -5,6 +5,7 @@ import type {
   Operation,
   RasterBox,
   RasterOcrResult,
+  RasterPreview,
 } from "../types";
 export class ApiError extends Error {
   constructor(
@@ -69,6 +70,19 @@ export const api = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ quad, text, match_fonts: !!text }),
+      }),
+    ),
+  /** 让画布预览与导出结果一致：服务端跑同一条重绘流水线，只回传受影响区域 */
+  rasterPreview: (
+    id: string,
+    page: number,
+    body: Record<string, unknown>,
+  ) =>
+    checked<RasterPreview>(
+      fetch(`/api/v1/documents/${id}/pages/${page}/raster/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       }),
     ),
   file: (id: string) => `/api/v1/documents/${id}/file`,

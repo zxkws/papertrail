@@ -639,3 +639,16 @@ aside {
   background: var(--ink);
   color: var(--acid);
 }
+
+/* 服务端渲染的真实预览：与导出逐像素一致，压在框上面，不拦点击 */
+.raster-preview {
+  position: absolute;
+  pointer-events: none;
+  outline: 1px solid rgba(23, 32, 27, 0.35);
+}
+/* 还没取真实预览时，画布上的文字只是位置示意——
+   它用的是浏览器字体，反映不了匹配到的字体，也反映不了擦除效果 */
+.hit.placeholder {
+  border: 1px dashed var(--ink);
+  opacity: 0.55;
+}

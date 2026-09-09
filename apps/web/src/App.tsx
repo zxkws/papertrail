@@ -26,6 +26,7 @@ import type {
   Layout,
   Operation,
   RasterBox,
+  RasterPreview,
   VisualElement,
 } from "./types";
 import "./styles.css";
@@ -52,6 +53,9 @@ export default function App() {
   const [download, setDownload] = useState("");
   const [versionId, setVersionId] = useState("");
   const [dragging, setDragging] = useState(false);
+  // 元素 id -> 服务端渲染的真实预览。画布上的 HTML 文本只能示意位置，
+  // 反映不了匹配到的字体，也反映不了擦除与背景修补的效果
+  const [previews, setPreviews] = useState<Record<string, RasterPreview>>({});
   const [error, setError] = useState("");
   const ops = history.present;
   const visual = useMemo(
@@ -81,6 +85,7 @@ export default function App() {
       setHistory(initialHistory);
       setSelectedId(undefined);
       setRasterBoxes({});
+      setPreviews({});
       setDownload("");
       setVersionId("");
     } catch (e) {
@@ -186,21 +191,55 @@ export default function App() {
     }
   }
 
+  function currentForm() {
+    return {
+      text,
+      original,
+      font,
+      size: fontSize,
+      color: textColor,
+      align: "left" as const,
+      erase,
+    };
+  }
+
+  /** 按当前表单向服务端要一张真实重绘的预览。 */
+  async function preview(id: string, page: number, box: RasterBox) {
+    if (!doc) return;
+    setBusy("渲染预览");
+    setError("");
+    try {
+      const form = currentForm();
+      const result = await api.rasterPreview(doc.document_id, page, {
+        bbox: box.bbox,
+        quad: box.quad,
+        text: form.text,
+        original_text: form.original,
+        font: form.font,
+        erase: form.erase,
+        style: {
+          font_family: form.font,
+          font_size_pt: form.size,
+          color: form.color,
+          align: form.align,
+          rotation: 0,
+        },
+      });
+      setPreviews((prev) => ({ ...prev, [id]: result }));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy("");
+    }
+  }
+
   function replaceRaster() {
     if (!selected || selected.kind !== "raster") return;
     const box = rasterBox(selected.id);
     if (!box) return;
-    add(
-      rasterReplaceOp(selected.id, selected.page_index, box, {
-        text,
-        original,
-        font,
-        size: fontSize,
-        color: textColor,
-        align: "left",
-        erase,
-      }),
-    );
+    add(rasterReplaceOp(selected.id, selected.page_index, box, currentForm()));
+    // 应用后顺手取一张真实预览，画布上显示的就不再是「示意」了
+    preview(selected.id, selected.page_index, box);
   }
   async function save() {
     if (!draft) return;
@@ -442,6 +481,7 @@ export default function App() {
               layouts={layouts}
               elements={visual}
               covers={coverOverlays}
+              previews={previews}
               selected={selectedId}
               tool={tool}
               onSelect={select}
@@ -653,6 +693,14 @@ export default function App() {
                 </div>
 
                 <div className="workflow-actions">
+                  <button
+                    onClick={() =>
+                      preview(selected.id, selected.page_index, selectedBox)
+                    }
+                    disabled={!!busy}
+                  >
+                    预览效果（服务端真实重绘）
+                  </button>
                   <button className="primary" onClick={replaceRaster}>
                     应用替换
                   </button>

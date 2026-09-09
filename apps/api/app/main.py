@@ -14,6 +14,7 @@ from .models import (
     Operation,
     RasterInspectRequest,
     RasterOcrRequest,
+    RasterPreviewRequest,
     SaveOperations,
 )
 from .pdf_engine import export_pdf, image_to_pdf, parse_layout, sniff_image
@@ -233,6 +234,33 @@ def raster_inspect(document_id: str, page_index: int, body: RasterInspectRequest
             doc[page_index], [list(p) for p in body.quad], body.text,
             match_fonts=body.match_fonts, dpi=body.dpi,
         )
+    finally:
+        doc.close()
+
+
+@app.post("/api/v1/documents/{document_id}/pages/{page_index}/raster/preview")
+def raster_preview(document_id: str, page_index: int, body: RasterPreviewRequest):
+    """按真实流水线渲染一条编辑并回传受影响区域，让画布预览与导出结果一致。"""
+    module = raster_module()
+    meta = page_meta(document_id, page_index)
+    require_raster_page(meta, page_index)
+    item = {
+        "bbox": list(body.bbox),
+        "quad": [list(p) for p in body.quad] if body.quad else None,
+        "text": body.text,
+        "style": body.style.model_dump() if body.style else {},
+        "payload": {
+            "original_text": body.original_text,
+            "font": body.font,
+            "erase": body.erase,
+            "grow": body.grow,
+        },
+    }
+    doc = fitz.open(meta["source_path"])
+    try:
+        return module.pages.preview_edit(doc[page_index], item, dpi=body.dpi)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(422, str(exc)) from exc
     finally:
         doc.close()
 

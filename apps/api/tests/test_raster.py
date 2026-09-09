@@ -6,7 +6,9 @@
 import hashlib
 import io
 
+import cv2
 import fitz
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -419,3 +421,83 @@ def test_non_image_non_pdf_is_rejected():
         "/api/v1/documents", files={"file": ("a.txt", b"hello world", "text/plain")}
     )
     assert response.status_code == 415
+
+
+# ---------- 服务端真实预览 ----------
+
+def test_preview_matches_the_exported_pixels():
+    """画布预览必须与导出结果一致——预览走的就是同一条重绘流水线。"""
+    document_id = upload(scanned_pdf())
+    ocr = client.post(
+        f"/api/v1/documents/{document_id}/pages/0/raster/ocr", json={"dpi": 200}
+    ).json()
+    target = next(b for b in ocr["boxes"] if "INV-" in b["text"])
+    suggest = target["suggest"]
+    new_text = "Invoice No: INV-99887766"
+    style = {
+        "font_family": suggest.get("font", "helv"),
+        "font_size_pt": suggest["font_size_pt"],
+        "color": target["text_color"],
+        "align": "left",
+        "rotation": 0,
+    }
+
+    preview = client.post(
+        f"/api/v1/documents/{document_id}/pages/0/raster/preview",
+        json={
+            "bbox": target["bbox"], "quad": target["quad"], "text": new_text,
+            "original_text": suggest.get("text", target["text"]),
+            "font": suggest.get("font"), "style": style, "dpi": 200,
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["image"].startswith("data:image/png;base64,")
+    assert body["used"]["font"] == suggest.get("font")
+
+    import base64 as b64
+
+    crop = cv2.imdecode(
+        np.frombuffer(b64.b64decode(body["image"].split(",", 1)[1]), np.uint8),
+        cv2.IMREAD_COLOR,
+    )
+    # 预览里应当已经是新文字，而不是原文
+    texts = raster_ocr_texts(crop)
+    assert any("99887766" in t for t in texts), texts
+
+    # 同一条编辑走导出，落到同一块区域的像素应当与预览一致
+    draft = client.post(f"/api/v1/documents/{document_id}/drafts").json()
+    client.put(
+        f"/api/v1/drafts/{draft['id']}/operations",
+        json={"expected_revision": draft["revision"], "operations": [{
+            "id": "op-1", "seq": 1, "type": "raster_replace_text", "page_index": 0,
+            "created_element_id": "r:p0:inv", "bbox": target["bbox"],
+            "payload": {
+                "text": new_text, "original_text": suggest.get("text", target["text"]),
+                "font": suggest.get("font"), "quad": target["quad"],
+            },
+            "style": style,
+        }]},
+    ).raise_for_status()
+    version = client.post(f"/api/v1/drafts/{draft['id']}/exports").json()
+    exported = client.get(
+        f"/api/v1/versions/{version['version_id']}/download"
+    ).content
+
+    from app.raster.pages import render_page
+
+    document = fitz.open(stream=exported, filetype="pdf")
+    try:
+        full, scale = render_page(document[0], 200)
+    finally:
+        document.close()
+    x0, y0, x1, y1 = (int(round(v * scale)) for v in body["region_pt"])
+    same_region = full[y0:y1, x0:x1]
+    assert same_region.shape == crop.shape, (same_region.shape, crop.shape)
+    assert np.array_equal(same_region, crop), "预览与导出结果不是同一批像素"
+
+
+def raster_ocr_texts(image):
+    from app.raster import ocr as raster_ocr
+
+    return [b["text"] for b in raster_ocr.detect(image)[0]]

@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import base64
+
 import cv2
 import fitz
 import numpy as np
@@ -122,6 +124,40 @@ def inspect_quad(page, quad_pt, text: str = "", match_fonts: bool = True,
     quad_px = quad_pt_to_px(quad_pt, scale)
     info = pipeline.inspect_box(img, quad_px, text, match_fonts=match_fonts)
     return box_to_points(info, {"text": text, "score": 1.0, "quad": quad_px}, 0, scale)
+
+
+def preview_edit(page, item: dict, dpi: int = RASTER_DPI, pad_pt: float = 6.0) -> dict:
+    """按真实流水线渲染单条编辑，只回传受影响的那一小块。
+
+    画布上用 HTML 文本做预览是不可能准的：匹配到的字体在服务端、.ttc 字体集
+    浏览器加载不了、中文字体几十 MB，而擦除与背景修补的效果更是覆盖层表现不出来的。
+    这里直接跑一遍真实重绘再裁剪，所见即所得。
+    """
+    img, scale = render_page(page, dpi)
+    out, used = pipeline.apply_edits(img, [edit_to_pixels(item, scale)])
+
+    quad_pt = item.get("quad") or bbox_to_quad(item["bbox"])
+    xs = [p[0] for p in quad_pt]
+    ys = [p[1] for p in quad_pt]
+    # 新文字可能比原文长而溢出原框，预览要把溢出部分也带上
+    region_pt = [
+        max(0.0, min(xs) - pad_pt),
+        max(0.0, min(ys) - pad_pt),
+        min(page.rect.width, max(xs) + pad_pt + (max(xs) - min(xs))),
+        min(page.rect.height, max(ys) + pad_pt),
+    ]
+    x0, y0, x1, y1 = (int(round(v * scale)) for v in region_pt)
+    x1, y1 = max(x1, x0 + 1), max(y1, y0 + 1)
+    crop = out[y0:min(y1, out.shape[0]), x0:min(x1, out.shape[1])]
+    ok, buf = cv2.imencode(".png", crop)
+    if not ok:
+        raise ValueError("PREVIEW_ENCODE_FAILED")
+    return {
+        "region_pt": [round(v, 3) for v in region_pt],
+        "dpi": dpi,
+        "used": used[0] if used else {},
+        "image": "data:image/png;base64," + base64.b64encode(buf.tobytes()).decode(),
+    }
 
 
 def edit_page(doc, page_index: int, items: list[dict], dpi: int = RASTER_DPI) -> list[dict]:
