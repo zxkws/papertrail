@@ -46,7 +46,21 @@ def read_json(path: Path) -> dict:
     return json.loads(path.read_text("utf-8"))
 
 
-def save_document(filename: str, data: bytes, page_count: int) -> dict:
+IMAGE_EXTENSIONS = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/bmp": ".bmp",
+    "image/tiff": ".tiff",
+    "image/webp": ".webp",
+}
+
+
+def save_document(
+    filename: str, data: bytes, page_count: int, origin: dict | None = None
+) -> dict:
+    """origin 用于图片上传：data 是服务端包出来的单页 PDF，
+    origin 里带着用户真正交上来的原图，原样另存并单独记哈希。"""
     document_id = str(uuid.uuid4())
     digest = sha256_bytes(data)
     source_path = SOURCES / f"{document_id}.pdf"
@@ -62,6 +76,21 @@ def save_document(filename: str, data: bytes, page_count: int) -> dict:
         "page_count": page_count,
         "source_path": str(source_path),
     }
+    if origin is not None:
+        extension = IMAGE_EXTENSIONS.get(origin["media_type"], ".bin")
+        origin_path = SOURCES / f"{document_id}.origin{extension}"
+        with origin_path.open("xb") as f:
+            f.write(origin["data"])
+        origin_path.chmod(0o444)
+        meta["origin"] = {
+            "kind": "image",
+            "media_type": origin["media_type"],
+            "sha256": sha256_bytes(origin["data"]),
+            "size_bytes": len(origin["data"]),
+            "width_px": origin["width_px"],
+            "height_px": origin["height_px"],
+            "path": str(origin_path),
+        }
     atomic_json(META / f"document-{document_id}.json", meta)
     return meta
 

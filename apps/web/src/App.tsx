@@ -50,6 +50,8 @@ export default function App() {
   const [erase, setErase] = useState("auto");
   const [busy, setBusy] = useState("");
   const [download, setDownload] = useState("");
+  const [versionId, setVersionId] = useState("");
+  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState("");
   const ops = history.present;
   const visual = useMemo(
@@ -80,12 +82,31 @@ export default function App() {
       setSelectedId(undefined);
       setRasterBoxes({});
       setDownload("");
+      setVersionId("");
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy("");
     }
   }
+  /** 落地页整块都可以拖入文件。`.drop input` 是 display:none 的，
+   *  不自己处理 drop，浏览器会直接打开文件、把应用页面顶掉。 */
+  const dropHandlers = {
+    onDragOver: (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragging(true);
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (e.currentTarget === e.target) setDragging(false);
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragging(false);
+      const dropped = e.dataTransfer.files?.[0];
+      if (dropped) upload(dropped);
+    },
+  };
+
   function add(op: Omit<Operation, "id" | "seq">) {
     setHistory((h) =>
       commit(h, [
@@ -202,6 +223,7 @@ export default function App() {
       const r = await saveThenExport(api, draft, ops);
       setDraft({ ...draft, revision: r.revision });
       setDownload(api.download(r.version_id));
+      setVersionId(r.version_id);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -294,34 +316,43 @@ export default function App() {
           <i /> 源文件永不修改
         </div>
         <label className="upload">
-          {doc ? "更换 PDF" : "选择 PDF"}
+          {doc ? "更换文件" : "选择文件"}
           <input
             type="file"
-            accept="application/pdf"
+            accept="application/pdf,image/png,image/jpeg,image/gif,image/bmp,image/tiff,image/webp"
             onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
           />
         </label>
       </header>
       {!doc ? (
-        <section className="empty">
+        <section
+          className={`empty ${dragging ? "dragging" : ""}`}
+          {...dropHandlers}
+        >
           <p className="eyebrow">DETERMINISTIC · PRIVATE · LOCAL</p>
           <h1>
-            把改动留在
+            按文档类型
             <br />
-            <em>操作轨迹</em>里。
+            <em>自动分流</em>处理。
           </h1>
-          <p>
-            点击原生文字，修改、拖动或删除；也可以在任意页拖框覆盖并叠加新文字。无需云端
-            AI。
-          </p>
+          <div className="paths">
+            <div className="path">
+              <h3>矢量 PDF（数字生成）</h3>
+              <p>点选文字直接改，导出无损，文字仍可选中。</p>
+            </div>
+            <div className="path">
+              <h3>扫描件 / 截图 / 照片</h3>
+              <p>先 OCR 识别，再擦掉原字、用匹配到的字体重绘像素。</p>
+            </div>
+          </div>
           <label className="drop">
-            上传普通 PDF 开始
+            上传 PDF 或直接拖拽图片至此
             <input
               type="file"
-              accept="application/pdf"
+              accept="application/pdf,image/png,image/jpeg,image/gif,image/bmp,image/tiff,image/webp"
               onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
             />
-            <span>≤100 MB · ≤300 页</span>
+            <span>支持 PDF、PNG、JPG、WEBP 等 · ≤100 MB</span>
           </label>
         </section>
       ) : (
@@ -330,6 +361,12 @@ export default function App() {
             <p className="label">文档</p>
             <h2>{doc.page_count} 页</h2>
             <code>{doc.upload_sha256.slice(0, 16)}…</code>
+            {doc.origin && (
+              <div className="doc-origin">
+                <code>{doc.origin.width_px} × {doc.origin.height_px}</code>
+                <code>{doc.origin.media_type}</code>
+              </div>
+            )}
             <div className="rail">
               {layouts.map((l) => {
                 const isRaster = l.kind === "raster";
@@ -388,9 +425,16 @@ export default function App() {
                 保存并导出 PDF
               </button>
               {download && (
-                <a className="download" href={download}>
-                  下载版本 ↓
-                </a>
+                <>
+                  <a className="download" href={download}>
+                    下载 PDF ↓
+                  </a>
+                  {doc?.origin && versionId && (
+                    <a className="download" href={api.downloadPng(versionId)}>
+                      下载 PNG ↓
+                    </a>
+                  )}
+                </>
               )}
             </div>
             <PdfViewer

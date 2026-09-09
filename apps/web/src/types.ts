@@ -107,6 +107,15 @@ export interface DocumentInfo {
   document_id: string;
   upload_sha256: string;
   page_count: number;
+  /** 上传的是图片时，服务端把它包成了单页 PDF，这里是用户原图的信息 */
+  origin?: {
+    kind: "image";
+    media_type: string;
+    sha256: string;
+    size_bytes: number;
+    width_px: number;
+    height_px: number;
+  } | null;
 }
 
 export interface FontEntry {

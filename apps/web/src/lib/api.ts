@@ -73,4 +73,7 @@ export const api = {
     ),
   file: (id: string) => `/api/v1/documents/${id}/file`,
   download: (id: string) => `/api/v1/versions/${id}/download`,
+  /** 上传的是图片时用户要的是图片，不是 PDF */
+  downloadPng: (id: string, page = 0, dpi = 200) =>
+    `/api/v1/versions/${id}/download.png?page_index=${page}&dpi=${dpi}`,
 };

@@ -17,6 +17,48 @@ _layout_cache_lock = RLock()
 
 IMAGE_COVERAGE_MIN = 0.6  # 图像覆盖率超过此值且无可见文字，判为位图页
 
+# 上传图片时按这个分辨率折算页面尺寸。取值与位图流水线的渲染 DPI 一致，
+# 这样「渲染这一页」拿回来的就是原始像素，不放大也不缩小，改字不损失清晰度。
+IMAGE_PAGE_DPI = 200
+IMAGE_MAGIC = {
+    b"\x89PNG\r\n\x1a\n": "image/png",
+    b"\xff\xd8\xff": "image/jpeg",
+    b"GIF87a": "image/gif",
+    b"GIF89a": "image/gif",
+    b"BM": "image/bmp",
+    b"II*\x00": "image/tiff",
+    b"MM\x00*": "image/tiff",
+}
+
+
+def sniff_image(data: bytes) -> str | None:
+    """按魔数判断是不是支持的图片。不信任扩展名和 Content-Type。"""
+    for magic, media_type in IMAGE_MAGIC.items():
+        if data.startswith(magic):
+            return media_type
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def image_to_pdf(data: bytes, dpi: int = IMAGE_PAGE_DPI) -> tuple[bytes, int, int]:
+    """把一张图包成单页 PDF，返回 (pdf 字节, 宽像素, 高像素)。
+
+    截图和扫描件本来就只有像素，转成 PDF 并不会让它变得可编辑——
+    这里只是让它进入统一的页面模型，随后照样走位图路径（OCR + 重绘）。
+    """
+    pix = fitz.Pixmap(data)
+    width_px, height_px = pix.width, pix.height
+    if not width_px or not height_px:
+        raise ValueError("EMPTY_IMAGE")
+    scale = 72.0 / dpi
+    doc = fitz.open()
+    page = doc.new_page(width=width_px * scale, height=height_px * scale)
+    page.insert_image(page.rect, stream=data)
+    out = doc.tobytes(garbage=3, deflate=True)
+    doc.close()
+    return out, width_px, height_px
+
 
 def visible_text_chars(page) -> int:
     """可见文字的字符数。

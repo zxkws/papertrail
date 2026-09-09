@@ -16,7 +16,7 @@ from .models import (
     RasterOcrRequest,
     SaveOperations,
 )
-from .pdf_engine import export_pdf, parse_layout
+from .pdf_engine import export_pdf, image_to_pdf, parse_layout, sniff_image
 from .reducer import ReducerError, canonical_reduce
 from . import raster_ext, storage
 
@@ -99,8 +99,25 @@ async def upload(file: UploadFile = File(...)):
             raise HTTPException(413, "PDF exceeds 100 MB")
         chunks.append(chunk)
     data = b"".join(chunks)
-    if not data.startswith(b"%PDF"):
-        raise HTTPException(415, "only valid PDF files are accepted")
+
+    origin = None
+    media_type = sniff_image(data)
+    if media_type:
+        # 截图/扫描照片直接收下，服务端包成单页 PDF 走同一套页面模型。
+        # 要求用户先自己转 PDF 是没有意义的——转完依然只有像素。
+        try:
+            data, width_px, height_px = image_to_pdf(data)
+        except Exception as exc:
+            raise HTTPException(422, "damaged or unsupported image") from exc
+        origin = {
+            "data": b"".join(chunks),
+            "media_type": media_type,
+            "width_px": width_px,
+            "height_px": height_px,
+        }
+    elif not data.startswith(b"%PDF"):
+        raise HTTPException(415, "only PDF or PNG/JPEG/GIF/BMP/TIFF/WebP images are accepted")
+
     try:
         doc = fitz.open(stream=data, filetype="pdf")
         pages = doc.page_count
@@ -109,12 +126,15 @@ async def upload(file: UploadFile = File(...)):
         raise HTTPException(422, "damaged or unsupported PDF") from exc
     if pages > 300:
         raise HTTPException(413, "PDF exceeds 300 pages")
-    meta = storage.save_document(file.filename or "upload.pdf", data, pages)
+    meta = storage.save_document(
+        file.filename or ("upload.png" if origin else "upload.pdf"), data, pages, origin
+    )
     return {
         "document_id": meta["id"],
         "status": "READY",
         "upload_sha256": meta["source_sha256"],
         "page_count": pages,
+        "origin": meta.get("origin"),
     }
 
 
@@ -309,6 +329,30 @@ def create_export(draft_id: str):
         "sha256": version["sha256"],
         "status": "READY",
     }
+
+
+@app.get("/api/v1/versions/{version_id}/download.png")
+def download_png(version_id: str, page_index: int = 0, dpi: int = 200):
+    """把导出结果的某一页渲染成 PNG。上传的是图片时，用户要的是图片，不是 PDF。"""
+    if dpi < 36 or dpi > 600:
+        raise HTTPException(422, "dpi must be between 36 and 600")
+    try:
+        value = storage.version(version_id)
+    except KeyError as exc:
+        missing(exc)
+    doc = fitz.open(value["path"])
+    try:
+        if page_index < 0 or page_index >= doc.page_count:
+            raise HTTPException(404, "page not found")
+        pix = doc[page_index].get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72), alpha=False)
+        data = pix.tobytes("png")
+    finally:
+        doc.close()
+    return Response(
+        data,
+        media_type="image/png",
+        headers={"Content-Disposition": f'attachment; filename="edited-{version_id}.png"'},
+    )
 
 
 @app.get("/api/v1/versions/{version_id}/download")

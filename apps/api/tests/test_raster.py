@@ -3,6 +3,7 @@
 覆盖三件事：页面类型判定是否可靠、改字后能不能被 OCR 读回、
 矢量页有没有被这条路径误伤。
 """
+import hashlib
 import io
 
 import fitz
@@ -313,3 +314,108 @@ def test_export_reports_missing_extra(monkeypatch, tmp_path):
     }
     with pytest.raises(ValueError, match="RASTER_UNAVAILABLE"):
         pdf_engine.export_pdf(str(path), canonical)
+
+
+# ---------- 图片直接上传 ----------
+
+def png_bytes(width=900, height=300):
+    from PIL import Image, ImageDraw, ImageFont
+
+    from app.raster import fonts as raster_fonts
+
+    entry = raster_fonts.find("Helvetica Regular") or raster_fonts.default_font()
+    image = Image.new("RGB", (width, height), (252, 252, 250))
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.truetype(entry["path"], 44, index=entry["index"])
+    draw.text((60, 60), "Screenshot No: SC-20240513", font=font, fill=(24, 24, 26))
+    draw.text((60, 160), "Status: PENDING", font=font, fill=(24, 24, 26))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def test_png_upload_becomes_a_raster_page():
+    """截图直接传，服务端包成单页 PDF；要求用户先自己转 PDF 是没有意义的。"""
+    raw = png_bytes()
+    response = client.post(
+        "/api/v1/documents", files={"file": ("shot.png", raw, "image/png")}
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["page_count"] == 1
+    assert body["origin"]["kind"] == "image"
+    assert body["origin"]["media_type"] == "image/png"
+    assert (body["origin"]["width_px"], body["origin"]["height_px"]) == (900, 300)
+    # 原图另存并单独记哈希，交上来的字节不被改动
+    assert body["origin"]["sha256"] == hashlib.sha256(raw).hexdigest()
+
+    layout = client.get(
+        f"/api/v1/documents/{body['document_id']}/pages/0/layout"
+    ).json()
+    assert layout["kind"] == "raster"
+
+
+def test_png_page_renders_back_at_original_pixel_size():
+    """页面尺寸按 200dpi 折算，渲染回来必须与原图逐像素同尺寸，改字不损失清晰度。"""
+    document_id = upload(png_bytes(1536, 1024))
+    meta = client.get(f"/api/v1/documents/{document_id}").json()
+    document = fitz.open(meta["source_path"])
+    try:
+        from app.raster.pages import render_page
+
+        image, _ = render_page(document[0], 200)
+    finally:
+        document.close()
+    assert (image.shape[1], image.shape[0]) == (1536, 1024)
+
+
+def test_png_upload_full_edit_and_png_download():
+    document_id = upload(png_bytes())
+    ocr = client.post(
+        f"/api/v1/documents/{document_id}/pages/0/raster/ocr", json={"dpi": 200}
+    ).json()
+    target = next(b for b in ocr["boxes"] if "SC-" in b["text"])
+
+    draft = client.post(f"/api/v1/documents/{document_id}/drafts").json()
+    client.put(
+        f"/api/v1/drafts/{draft['id']}/operations",
+        json={
+            "expected_revision": draft["revision"],
+            "operations": [{
+                "id": "op-1", "seq": 1, "type": "raster_replace_text", "page_index": 0,
+                "created_element_id": "r:p0:a", "bbox": target["bbox"],
+                "payload": {
+                    "text": "Screenshot No: SC-99887766",
+                    "original_text": target["suggest"].get("text", target["text"]),
+                    "font": target["suggest"].get("font"), "quad": target["quad"],
+                },
+                "style": {
+                    "font_family": target["suggest"].get("font", "helv"),
+                    "font_size_pt": target["suggest"]["font_size_pt"],
+                    "color": target["text_color"], "align": "left", "rotation": 0,
+                },
+            }],
+        },
+    ).raise_for_status()
+    version = client.post(f"/api/v1/drafts/{draft['id']}/exports").json()
+
+    png = client.get(f"/api/v1/versions/{version['version_id']}/download.png")
+    assert png.status_code == 200
+    assert png.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+    # 直接量像素：fitz 打开 PNG 时会按 96dpi 折算成点，量 rect 会得到 675x225
+    pixmap = fitz.Pixmap(png.content)
+    assert (pixmap.width, pixmap.height) == (900, 300)
+
+    texts = page_text(client.get(
+        f"/api/v1/versions/{version['version_id']}/download"
+    ).content)
+    assert any("99887766" in t for t in texts), texts
+    assert any("PENDING" in t for t in texts), "未编辑的行不该受影响"
+
+
+def test_non_image_non_pdf_is_rejected():
+    response = client.post(
+        "/api/v1/documents", files={"file": ("a.txt", b"hello world", "text/plain")}
+    )
+    assert response.status_code == 415

@@ -101,9 +101,30 @@ header {
 .empty h1 em {
   color: #516044;
 }
-.empty > p:not(.eyebrow) {
+.empty > p:not(.eyebrow),
+.path p {
   max-width: 520px;
   line-height: 1.7;
+}
+.paths {
+  display: flex;
+  gap: 24px;
+  margin: 32px 0;
+}
+.path {
+  background: white;
+  padding: 16px 20px;
+  border: 1px solid var(--line);
+  max-width: 300px;
+}
+.path h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.path p {
+  margin: 0;
+  font-size: 13px;
+  color: #687169;
 }
 .drop {
   display: inline-flex;
@@ -113,6 +134,12 @@ header {
 .drop span {
   font: 9px DM Mono;
   margin-top: 5px;
+}
+.doc-origin {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .workspace {
   display: grid;
@@ -602,4 +629,13 @@ aside {
 }
 .vector-header {
   border-bottom-color: var(--ink);
+}
+
+/* 落地页拖入文件时的反馈 */
+.empty.dragging {
+  background: var(--acid);
+}
+.empty.dragging .drop {
+  background: var(--ink);
+  color: var(--acid);
 }
