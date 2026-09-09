@@ -64,6 +64,21 @@ export interface RasterBox {
     iou: number; size: number; font_size_pt: number;
   }[];
 }
+/** operation 的载荷。已知键给出确切类型，其余留给后端扩展。 */
+export interface OperationPayload {
+  text?: string;
+  cover_color?: string;
+  // 位图操作专用
+  original_text?: string;
+  font?: string;
+  erase?: string;
+  grow?: number;
+  angle?: number;
+  opacity?: number;
+  /** 文字框四点，PDF 点坐标；缺省时用 bbox */
+  quad?: [number, number][];
+  [key: string]: unknown;
+}
 export interface Operation {
   id: string;
   seq: number;
@@ -72,7 +87,7 @@ export interface Operation {
   target_element_id?: string;
   created_element_id?: string;
   bbox?: BBox;
-  payload?: Record<string, unknown>;
+  payload?: OperationPayload;
   style?: TextStyle;
   z_order?: number;
 }

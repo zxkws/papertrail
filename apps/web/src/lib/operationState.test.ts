@@ -7,6 +7,7 @@ const layout: Layout = {
   height_pt: 500,
   rotation: 0,
   scan_likelihood: 0,
+  kind: "vector",
   elements: [
     {
       id: "n:1",
