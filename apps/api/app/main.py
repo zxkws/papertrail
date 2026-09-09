@@ -6,12 +6,19 @@ from typing import NoReturn
 import fitz
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
-from .models import NativeElement, Operation, SaveOperations
+from .models import (
+    RASTER_TYPES,
+    NativeElement,
+    Operation,
+    RasterInspectRequest,
+    RasterOcrRequest,
+    SaveOperations,
+)
 from .pdf_engine import export_pdf, parse_layout
 from .reducer import ReducerError, canonical_reduce
-from . import storage
+from . import raster_ext, storage
 
 app = FastAPI(title="Papertrail PDF API", version="0.1.0")
 
@@ -36,6 +43,44 @@ app.add_middleware(
 
 def missing(exc: Exception) -> NoReturn:
     raise HTTPException(404, "resource not found") from exc
+
+
+def raster_module():
+    """位图能力是可选依赖，没装就明确告诉调用方，而不是 500。"""
+    if not raster_ext.AVAILABLE:
+        raise HTTPException(
+            503,
+            detail={
+                "code": "RASTER_UNAVAILABLE",
+                "hint": raster_ext.HINT,
+                "error": raster_ext.IMPORT_ERROR,
+            },
+        )
+    return raster_ext.raster
+
+
+def page_meta(document_id: str, page_index: int) -> dict:
+    try:
+        meta = storage.document(document_id)
+    except KeyError as exc:
+        missing(exc)
+    if page_index < 0 or page_index >= meta["page_count"]:
+        raise HTTPException(404, "page not found")
+    return meta
+
+
+def require_raster_page(meta: dict, page_index: int) -> None:
+    """矢量页栅格化会毁掉整页文字层，位图操作只允许落在扫描页上。"""
+    layout = parse_layout(meta["source_path"], meta["source_sha256"], page_index)
+    if layout.get("kind") != "raster":
+        raise HTTPException(
+            422,
+            detail={
+                "code": "RASTER_EDIT_ON_VECTOR_PAGE",
+                "page_index": page_index,
+                "hint": "矢量页请用 replace_text / add_text 等原生操作",
+            },
+        )
 
 
 @app.get("/api/v1/health")
@@ -103,6 +148,66 @@ def layout(document_id: str, page_index: int):
     return parse_layout(meta["source_path"], meta["source_sha256"], page_index)
 
 
+@app.get("/api/v1/fonts")
+def list_fonts():
+    module = raster_module()
+    return {
+        "fonts": [
+            {k: entry[k] for k in ("name", "family", "style", "path", "index")}
+            for entry in module.fonts.registry()
+        ],
+        "default": module.fonts.default_font(),
+        "ocr_engines": module.ocr.available_engines(),
+    }
+
+
+@app.get("/api/v1/documents/{document_id}/pages/{page_index}/render.png")
+def render_page_png(document_id: str, page_index: int, dpi: int = 144):
+    """把页面渲染成 PNG。只用到 fitz，不需要位图 extra。"""
+    if dpi < 36 or dpi > 600:
+        raise HTTPException(422, "dpi must be between 36 and 600")
+    meta = page_meta(document_id, page_index)
+    doc = fitz.open(meta["source_path"])
+    try:
+        pix = doc[page_index].get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72), alpha=False)
+        data = pix.tobytes("png")
+    finally:
+        doc.close()
+    return Response(data, media_type="image/png")
+
+
+@app.post("/api/v1/documents/{document_id}/pages/{page_index}/raster/ocr")
+def raster_ocr(document_id: str, page_index: int, body: RasterOcrRequest):
+    module = raster_module()
+    meta = page_meta(document_id, page_index)
+    require_raster_page(meta, page_index)
+    doc = fitz.open(meta["source_path"])
+    try:
+        return module.pages.ocr_page(
+            doc[page_index], dpi=body.dpi, engine=body.engine, lang=body.lang,
+            match_fonts=body.match_fonts, min_score=body.min_score,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    finally:
+        doc.close()
+
+
+@app.post("/api/v1/documents/{document_id}/pages/{page_index}/raster/inspect")
+def raster_inspect(document_id: str, page_index: int, body: RasterInspectRequest):
+    module = raster_module()
+    meta = page_meta(document_id, page_index)
+    require_raster_page(meta, page_index)
+    doc = fitz.open(meta["source_path"])
+    try:
+        return module.pages.inspect_quad(
+            doc[page_index], [list(p) for p in body.quad], body.text,
+            match_fonts=body.match_fonts, dpi=body.dpi,
+        )
+    finally:
+        doc.close()
+
+
 @app.post("/api/v1/documents/{document_id}/drafts", status_code=201)
 def create_draft(document_id: str):
     try:
@@ -139,6 +244,15 @@ def save_operations(draft_id: str, body: SaveOperations):
             value = storage.draft(draft_id)
         except KeyError as exc:
             missing(exc)
+        try:
+            meta = storage.document(value["document_id"])
+        except KeyError as exc:
+            missing(exc)
+        for op in body.operations:
+            if op.type in RASTER_TYPES:
+                if op.page_index >= meta["page_count"]:
+                    raise HTTPException(422, f"page {op.page_index} out of range")
+                require_raster_page(meta, op.page_index)
         if body.expected_revision != value["revision"]:
             raise HTTPException(
                 409,

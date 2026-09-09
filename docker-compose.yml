@@ -1,6 +1,11 @@
 services:
   api:
-    build: {context: ., dockerfile: Dockerfile.api}
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      # 本地默认也带上位图能力；只想要瘦身版就 INSTALL_RASTER=0 docker compose build
+      args:
+        INSTALL_RASTER: ${INSTALL_RASTER:-1}
     volumes: ["pdf_data:/app/data"]
   web:
     build: {context: ., dockerfile: Dockerfile.web}

@@ -10,6 +10,16 @@ dependencies = [
   "pydantic==2.11.7",
 ]
 
+[project.optional-dependencies]
+# 位图页编辑（扫描件/截图）。onnxruntime + opencv 体积可观，
+# 不需要这条路径时可以不装，相关接口会返回 503。
+raster = [
+  "rapidocr-onnxruntime>=1.4",
+  "opencv-python-headless>=4.10",
+  "pillow>=11",
+  "numpy>=2",
+]
+
 [dependency-groups]
 dev = ["pytest==8.4.1", "httpx==0.28.1"]
 

@@ -4,9 +4,9 @@ import hashlib
 import json
 from copy import deepcopy
 
-from .models import NativeElement, Operation, TextStyle
+from .models import RASTER_TYPES, NativeElement, Operation, TextStyle
 
-ENGINE_CONTRACT = "pymupdf-1.26.3/redact-text-only/v1"
+ENGINE_CONTRACT = "pymupdf-1.26.3/redact-text-only+raster-redraw/v2"
 
 
 class ReducerError(ValueError):
@@ -46,6 +46,7 @@ def canonical_reduce(
         for e in native_elements
     }
     covers: list[dict] = []
+    raster_states: dict[str, dict] = {}
 
     for op in sorted(operations, key=lambda item: (item.seq, item.id)):
         if op.type == "cover_region":
@@ -61,6 +62,36 @@ def canonical_reduce(
                     "not_for_secure_redaction": True,
                 }
             )
+            continue
+        if op.type in RASTER_TYPES:
+            # 位图编辑按 r: 元素聚合，同一个框后来的操作直接覆盖前面的
+            key = op.created_element_id
+            state = raster_states.get(key)
+            if state and state["page_index"] != op.page_index:
+                raise ReducerError("RASTER_PAGE_MISMATCH")
+            quad = op.payload.get("quad")
+            if quad is not None and (
+                len(quad) != 4 or any(len(point) != 2 for point in quad)
+            ):
+                raise ReducerError("RASTER_QUAD_SHAPE")
+            raster_states[key] = {
+                "kind": "RASTER_TEXT",
+                "page_index": op.page_index,
+                "bbox": list(op.bbox),
+                "quad": [[float(x), float(y)] for x, y in quad] if quad else None,
+                "text": "" if op.type == "raster_delete_text" else str(
+                    op.payload.get("text", "")
+                ),
+                "style": (op.style or TextStyle()).model_dump(),
+                "payload": {
+                    k: op.payload[k]
+                    for k in ("original_text", "font", "erase", "grow", "angle", "opacity")
+                    if k in op.payload
+                },
+                "target_id": key,
+                "first_seq": (state or {}).get("first_seq", op.seq),
+                "seq": op.seq,
+            }
             continue
         if op.type == "add_text":
             target = op.created_element_id
@@ -138,12 +169,17 @@ def canonical_reduce(
     inserts.sort(
         key=lambda x: (x["page_index"], x["z_order"], x["first_seq"], x["target_id"])
     )
+    raster_edits = sorted(
+        raster_states.values(),
+        key=lambda x: (x["page_index"], x["first_seq"], x["target_id"]),
+    )
     result = {
         "schema_version": "v1",
         "engine_contract_version": ENGINE_CONTRACT,
         "redactions": redactions,
         "covers": covers,
         "inserts": inserts,
+        "raster_edits": raster_edits,
     }
     canonical = json.dumps(
         result, sort_keys=True, separators=(",", ":"), ensure_ascii=False

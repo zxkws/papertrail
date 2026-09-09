@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "apps/api/**"
+      - "schemas/**"
       - "Dockerfile.api"
       - ".dockerignore"
       - ".github/workflows/api-image.yml"
@@ -20,7 +21,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/web-pdf-editor-api
+  IMAGE_NAME: ${{ github.repository_owner }}/papertrail-api
 
 jobs:
   build-and-push:
@@ -57,6 +58,9 @@ jobs:
           context: .
           file: ./Dockerfile.api
           platforms: linux/amd64,linux/arm64
+          # 发布镜像带上位图能力，否则扫描页编辑在部署环境里直接 503
+          build-args: |
+            INSTALL_RASTER=1
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

@@ -15,6 +15,50 @@ _layout_cache: OrderedDict[tuple[str, int], dict] = OrderedDict()
 _layout_cache_lock = RLock()
 
 
+IMAGE_COVERAGE_MIN = 0.6  # 图像覆盖率超过此值且无可见文字，判为位图页
+
+
+def visible_text_chars(page) -> int:
+    """可见文字的字符数。
+
+    render mode 3 是不可见文字——ocrmypdf 那类「可搜索 PDF」在扫描图上盖的就是它，
+    只服务搜索和复制，改它一个可见像素都不会变。这里必须排除，
+    否则扫描页会被当成矢量页，走到根本改不动像素的原生路径上。
+    """
+    try:
+        spans = page.get_texttrace()
+    except Exception:
+        return len(page.get_text("text").strip())
+    total = 0
+    for span in spans:
+        if span.get("type") == 3 or float(span.get("opacity", 1)) <= 0.01:
+            continue
+        total += sum(1 for ch in span.get("chars", []) if chr(ch[0]).strip())
+    return total
+
+
+def image_coverage(page) -> float:
+    area = abs(page.rect.get_area()) or 1.0
+    covered, seen = 0.0, set()
+    for img in page.get_images(full=True):
+        xref = img[0]
+        if xref in seen:
+            continue
+        seen.add(xref)
+        for rect in page.get_image_rects(xref):
+            covered += abs(fitz.Rect(rect).get_area())
+    return min(1.0, covered / area)
+
+
+def page_kind(page) -> str:
+    """vector：有可见文字对象，走原生 redaction+insert；raster：整页就是一张图。"""
+    if visible_text_chars(page) > 0:
+        return "vector"
+    if image_coverage(page) >= IMAGE_COVERAGE_MIN:
+        return "raster"
+    return "vector"
+
+
 def color_hex(value: int) -> str:
     return f"#{value & 0xFFFFFF:06X}"
 
@@ -68,6 +112,7 @@ def parse_layout(source_path: str, document_hash: str, page_index: int) -> dict:
             "media_box": list(page.mediabox),
             "rotation": page.rotation if page.rotation in (0, 90, 180, 270) else 0,
             "scan_likelihood": 1.0 if chars == 0 else 0.0,
+            "kind": page_kind(page),
             "elements": elements,
         }
     finally:
@@ -105,8 +150,29 @@ def _font_name(text: str) -> str:
 
 
 def export_pdf(source_path: str, canonical: dict) -> Path:
+    # 延迟导入：位图能力是可选依赖，且 raster 包会反向引用本模块的 page_kind
+    from . import raster_ext
+
     doc = fitz.open(source_path)
     try:
+        # 阶段 0：位图页整页重绘。必须排在 A~C 之前——这一步会整页替换，
+        # 放在后面会把已经画上去的覆盖块和插入文字一起冲掉。
+        raster_items = canonical.get("raster_edits") or []
+        if raster_items:
+            if not raster_ext.AVAILABLE:
+                raise ValueError(f"RASTER_UNAVAILABLE: {raster_ext.HINT}")
+            grouped: dict[int, list] = {}
+            for item in raster_items:
+                grouped.setdefault(item["page_index"], []).append(item)
+            for page_index, items in sorted(grouped.items()):
+                if page_index >= doc.page_count:
+                    raise ValueError(f"RASTER_PAGE_OUT_OF_RANGE:{page_index}")
+                if page_kind(doc[page_index]) != "raster":
+                    # 矢量页栅格化会毁掉整页的文字层和矢量图形，
+                    # 与「非破坏式」的前提冲突，宁可报错也不做
+                    raise ValueError(f"RASTER_EDIT_ON_VECTOR_PAGE:{page_index}")
+                raster_ext.raster.edit_page(doc, page_index, items)
+
         by_page: dict[int, dict[str, list]] = {}
         for phase in ("redactions", "covers", "inserts"):
             for item in canonical[phase]:

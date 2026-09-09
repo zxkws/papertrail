@@ -23,10 +23,47 @@ export interface Layout {
   height_pt: number;
   rotation: Rotation;
   scan_likelihood: number;
+  kind: PageKind;
   elements: TextElement[];
 }
 export type OpType =
-  "replace_text" | "delete_text" | "move_text" | "add_text" | "cover_region";
+  | "replace_text"
+  | "delete_text"
+  | "move_text"
+  | "add_text"
+  | "cover_region"
+  // 位图页（扫描件/截图）：没有文字对象，按框重绘像素
+  | "raster_replace_text"
+  | "raster_delete_text";
+export type PageKind = "vector" | "raster";
+/** 位图框的分析结果，坐标一律是 PDF 点。 */
+export interface RasterBox {
+  index: number;
+  text: string;
+  score: number;
+  quad: [number, number][];
+  bbox: BBox;
+  ink_bbox: BBox;
+  angle: number;
+  text_color: string;
+  bg_color: string;
+  bg_std: number;
+  bg_residual: number;
+  stroke_width: number;
+  suggest: {
+    text?: string;
+    font?: string;
+    size?: number;
+    font_size_pt?: number;
+    color?: string;
+    erase?: string;
+    iou?: number;
+  };
+  font_matches: {
+    name: string; family: string; style: string;
+    iou: number; size: number; font_size_pt: number;
+  }[];
+}
 export interface Operation {
   id: string;
   seq: number;
@@ -35,7 +72,7 @@ export interface Operation {
   target_element_id?: string;
   created_element_id?: string;
   bbox?: BBox;
-  payload?: Record<string, string>;
+  payload?: Record<string, unknown>;
   style?: TextStyle;
   z_order?: number;
 }

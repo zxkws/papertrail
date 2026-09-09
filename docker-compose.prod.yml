@@ -1,0 +1,22 @@
+# 自托管 API：直接拉 GHCR 上构建好的镜像，前端另外托管在 Vercel。
+#   docker compose -f docker-compose.prod.yml up -d
+# 镜像路径里的 owner 已经写死成默认值，换账号时用 GHCR_OWNER=xxx 覆盖即可。
+name: papertrail  # 固定项目名，卷不随目录改名而失联
+
+services:
+  api:
+    image: ghcr.io/${GHCR_OWNER:-zxkws}/papertrail-api:${API_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      # 只监听回环，交给宿主机上的反向代理去做 TLS；
+      # 要直接暴露公网就把左边改成 0.0.0.0:8000
+      - "127.0.0.1:8000:8000"
+    environment:
+      PDF_EDITOR_DATA: /app/data
+      # 走 Vercel rewrite 时浏览器看到的是同源，用不上 CORS；
+      # 前端直连 API 域名时才需要按实际域名填写
+      PDF_EDITOR_CORS_ORIGINS: ${PDF_EDITOR_CORS_ORIGINS:-}
+    volumes:
+      - pdf_data:/app/data
+volumes:
+  pdf_data: {}
