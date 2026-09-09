@@ -151,6 +151,8 @@ def layout(document_id: str, page_index: int):
 @app.get("/api/v1/fonts")
 def list_fonts():
     module = raster_module()
+    from PIL import features
+
     return {
         "fonts": [
             {k: entry[k] for k in ("name", "family", "style", "path", "index")}
@@ -158,6 +160,13 @@ def list_fonts():
         ],
         "default": module.fonts.default_font(),
         "ocr_engines": module.ocr.available_engines(),
+        # 没有 raqm 就没有字距调整，重绘保真度和字体匹配分数都会明显下降，
+        # 而且不会报错——放在这里好让部署环境一眼看出来
+        "text_layout": {
+            "kerning": bool(features.check("raqm")),
+            "raqm": features.version("raqm"),
+            "freetype": features.version("freetype2"),
+        },
     }
 
 

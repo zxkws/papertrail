@@ -260,6 +260,16 @@ def test_reducer_rejects_page_switch_and_bad_quad():
         canonical_reduce([], [make_op(payload={"quad": [[0, 0], [1, 1]]})])
 
 
+def test_fonts_endpoint_reports_text_layout():
+    """暴露排版能力：缺 raqm 时 Pillow 不做字距调整，重绘保真度和字体匹配都会
+    悄悄下降且不报错，所以要能从接口上直接看出来。"""
+    body = client.get("/api/v1/fonts").json()
+    layout = body["text_layout"]
+    assert set(layout) == {"kerning", "raqm", "freetype"}
+    assert isinstance(layout["kerning"], bool)
+    assert layout["freetype"]  # 没有 freetype 的话根本画不了字
+
+
 def test_render_png_endpoint_needs_no_raster_extra():
     document_id = upload(vector_pdf())
     response = client.get(f"/api/v1/documents/{document_id}/pages/0/render.png?dpi=96")
